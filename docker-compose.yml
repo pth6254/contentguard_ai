@@ -3,13 +3,25 @@ services:
     image: postgres:17
     container_name: contentguard-postgres
     environment:
-      POSTGRES_USER: contentguard
-      POSTGRES_PASSWORD: contentguard
+      POSTGRES_USER: admin  
+      POSTGRES_PASSWORD: admin
       POSTGRES_DB: contentguard_db
     ports:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: contentguard-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5051:80"
+    depends_on:
+      - db
     restart: unless-stopped
 
 volumes:
