@@ -222,6 +222,7 @@ __marimo__/
 # ContentGuard AI
 venv-wsl/
 models/*.pkl
+*.db
 
 # Next.js / Node
 node_modules/
