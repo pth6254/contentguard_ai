@@ -80,8 +80,18 @@ def show_review_queue():
     st.title("⏳ 심사 큐")
     st.caption("AI가 분석한 콘텐츠를 검토하고 최종 판단을 내리세요.")
 
+    # 컨트롤 바
+    ctl1, ctl2 = st.columns(2)
+    with ctl1:
+        sort_label = st.selectbox("정렬", ["위험도 높은 순", "최신 순"])
+    with ctl2:
+        level_label = st.selectbox("등급 필터", ["전체", "🚨 CRITICAL", "🔴 HIGH", "🟡 MEDIUM", "🟢 LOW"])
+
+    sort_by    = "risk_score" if sort_label == "위험도 높은 순" else None
+    risk_level = level_label.split()[-1] if level_label != "전체" else None
+
     try:
-        pending = api.get_contents(status="PENDING")
+        pending = api.get_contents(status="PENDING", sort_by=sort_by, risk_level=risk_level)
     except Exception as e:
         st.error(f"API 연결 실패: {e}")
         return
@@ -90,7 +100,18 @@ def show_review_queue():
         st.success("심사 대기 중인 콘텐츠가 없습니다.")
         return
 
-    st.info(f"총 {len(pending)}건 심사 대기 중")
+    # 긴급도 요약
+    critical = sum(1 for c in pending if c["risk_level"] == "CRITICAL")
+    high     = sum(1 for c in pending if c["risk_level"] == "HIGH")
+    medium   = sum(1 for c in pending if c["risk_level"] == "MEDIUM")
+    low      = sum(1 for c in pending if c["risk_level"] == "LOW")
+
+    s1, s2, s3, s4, s5 = st.columns(5)
+    s1.metric("전체 대기", len(pending))
+    s2.metric("🚨 CRITICAL", critical, delta="즉시 처리" if critical else None, delta_color="inverse")
+    s3.metric("🔴 HIGH",     high)
+    s4.metric("🟡 MEDIUM",   medium)
+    s5.metric("🟢 LOW",      low)
 
     for item in pending:
         with st.expander(
@@ -110,6 +131,22 @@ def show_review_queue():
                 st.write(f"위험 등급: {LEVEL_BADGE.get(item['risk_level'])}")
                 st.write(f"권장 조치: `{item['recommended_action']}`")
                 st.write(f"등록 시각: {item['created_at'][:19]}")
+
+            with st.expander("모델별 예측 상세", expanded=False):
+                try:
+                    preds = api.get_predictions(item["content_id"])
+                    if preds:
+                        for p in preds:
+                            badge = "✅ 선택됨" if p["is_selected"] else "👁️ 참고"
+                            p_cols = st.columns([3, 1, 1, 1])
+                            p_cols[0].write(f"**{p['model_name']}** `{p['model_version']}` — {badge}")
+                            p_cols[1].metric("점수", f"{p['risk_score']:.2f}")
+                            p_cols[2].metric("신뢰도", f"{p['confidence']:.2f}" if p.get("confidence") is not None else "-")
+                            p_cols[3].metric("지연", f"{p['latency_ms']}ms" if p.get("latency_ms") is not None else "-")
+                    else:
+                        st.caption("저장된 모델 예측 없음 (구버전 데이터)")
+                except Exception:
+                    st.caption("모델 예측 조회 실패")
 
             st.markdown("**운영자 판단**")
             comment = st.text_input("메모 (선택)", key=f"comment_{item['content_id']}")
@@ -150,6 +187,20 @@ def show_analysis():
 
                 st.markdown("**AI 설명**")
                 st.info(result.get("explanation") or "설명 없음")
+
+                st.markdown("**모델별 예측**")
+                try:
+                    preds = api.get_predictions(content_id)
+                    for p in preds:
+                        badge = "✅" if p["is_selected"] else "👁️"
+                        with st.container(border=True):
+                            pc1, pc2, pc3, pc4 = st.columns([3, 1, 1, 1])
+                            pc1.write(f"{badge} `{p['model_name']}` ({p['model_type']})")
+                            pc2.metric("점수", f"{p['risk_score']:.2f}")
+                            pc3.metric("신뢰도", f"{p['confidence']:.2f}" if p.get("confidence") is not None else "-")
+                            pc4.metric("지연", f"{p['latency_ms']}ms" if p.get("latency_ms") is not None else "-")
+                except Exception:
+                    st.caption("모델 예측 조회 실패")
 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 400:

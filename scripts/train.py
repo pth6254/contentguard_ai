@@ -1,8 +1,14 @@
 """
-모델 학습 스크립트 — 회귀 기반 risk_score 예측
+모델 학습 스크립트
 실행: python scripts/train.py  (contentguard_ai/ 루트에서)
+
+새 모델 추가 방법:
+  1. BaseTrainer를 상속한 클래스 작성
+  2. TRAINERS 리스트에 인스턴스 추가
+  → train() 함수는 건드리지 않아도 됨
 """
 import sys
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -12,13 +18,16 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
+from sklearn.svm import LinearSVR
 
-DATA_PATH = ROOT_DIR / "data" / "training_data.csv"
+DATA_PATH  = ROOT_DIR / "data" / "training_data.csv"
 MODELS_DIR = ROOT_DIR / "models"
 MODELS_DIR.mkdir(exist_ok=True)
+
+LEVEL_ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
 
 def score_to_level(score: float) -> str:
@@ -31,56 +40,170 @@ def score_to_level(score: float) -> str:
     return "LOW"
 
 
-def evaluate_level_accuracy(y_true: np.ndarray, y_pred: np.ndarray):
+# ──────────────────────────────────────────────
+# 공통 리포트 유틸
+# ──────────────────────────────────────────────
+
+def report_regression(name: str, y_true: np.ndarray, y_pred: np.ndarray) -> None:
+    y_pred = np.clip(y_pred, 0.0, 1.0)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2  = r2_score(y_true, y_pred)
+
     true_levels = [score_to_level(s) for s in y_true]
     pred_levels = [score_to_level(s) for s in y_pred]
-    correct = sum(t == p for t, p in zip(true_levels, pred_levels))
-    print(f"\n[등급 분류 정확도] {correct}/{len(true_levels)} = {correct/len(true_levels):.1%}")
+    acc = sum(t == p for t, p in zip(true_levels, pred_levels)) / len(true_levels)
 
-    for level in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
-        indices = [i for i, l in enumerate(true_levels) if l == level]
-        if not indices:
-            continue
-        level_correct = sum(true_levels[i] == pred_levels[i] for i in indices)
-        print(f"  {level:8s}: {level_correct}/{len(indices)} 정확")
+    print(f"\n{'─'*44}")
+    print(f"  {name}")
+    print(f"  MAE: {mae:.4f}   R²: {r2:.4f}   등급 정확도: {acc:.1%}")
+    for level in LEVEL_ORDER:
+        subset = [(t, p) for t, p in zip(true_levels, pred_levels) if t == level]
+        if subset:
+            correct = sum(t == p for t, p in subset)
+            print(f"    {level:8s}: {correct}/{len(subset)}")
 
+
+def report_classifier(name: str, y_true: list[str], y_pred: list[str]) -> None:
+    acc = sum(t == p for t, p in zip(y_true, y_pred)) / len(y_true)
+
+    print(f"\n{'─'*44}")
+    print(f"  {name}")
+    print(f"  등급 정확도: {acc:.1%}")
+    for level in LEVEL_ORDER:
+        subset = [(t, p) for t, p in zip(y_true, y_pred) if t == level]
+        if subset:
+            correct = sum(t == p for t, p in subset)
+            print(f"    {level:8s}: {correct}/{len(subset)}")
+
+
+# ──────────────────────────────────────────────
+# Trainer 인터페이스
+# ──────────────────────────────────────────────
+
+class BaseTrainer(ABC):
+    """
+    새 모델을 추가하려면 이 클래스를 상속하고
+    fit / evaluate / save 를 구현한 뒤 TRAINERS에 등록한다.
+    """
+    model_name: str  # 로그/출력용 이름
+    save_file: str   # MODELS_DIR 아래 저장될 파일명
+
+    @abstractmethod
+    def fit(
+        self,
+        X_train,
+        y_train_score: np.ndarray,
+        y_train_level: list[str],
+    ) -> None: ...
+
+    @abstractmethod
+    def evaluate(
+        self,
+        X_test,
+        y_test_score: np.ndarray,
+        y_test_level: list[str],
+    ) -> None: ...
+
+    def save(self) -> None:
+        joblib.dump(self.model, MODELS_DIR / self.save_file)
+        print(f"  저장: {self.save_file}")
+
+
+# ──────────────────────────────────────────────
+# 개별 Trainer 구현
+# ──────────────────────────────────────────────
+
+class RidgeTrainer(BaseTrainer):
+    model_name = "Ridge Regression  →  ridge_model.pkl"
+    save_file  = "ridge_model.pkl"
+
+    def fit(self, X_train, y_train_score, y_train_level):
+        self.model = Ridge(alpha=1.0)
+        self.model.fit(X_train, y_train_score)
+
+    def evaluate(self, X_test, y_test_score, y_test_level):
+        report_regression(self.model_name, y_test_score, self.model.predict(X_test))
+
+
+class LinearSVMTrainer(BaseTrainer):
+    model_name = "Linear SVM (SVR)  →  linear_svm_model.pkl"
+    save_file  = "linear_svm_model.pkl"
+
+    def fit(self, X_train, y_train_score, y_train_level):
+        self.model = LinearSVR(C=1.0, max_iter=2000, random_state=42)
+        self.model.fit(X_train, y_train_score)
+
+    def evaluate(self, X_test, y_test_score, y_test_level):
+        report_regression(self.model_name, y_test_score, self.model.predict(X_test))
+
+
+class LogisticRegressionTrainer(BaseTrainer):
+    model_name = "Logistic Regression  →  logistic_regression_model.pkl"
+    save_file  = "logistic_regression_model.pkl"
+
+    def fit(self, X_train, y_train_score, y_train_level):
+        self.model = LogisticRegression(
+            C=1.0, max_iter=1000, random_state=42, class_weight="balanced"
+        )
+        self.model.fit(X_train, y_train_level)
+
+    def evaluate(self, X_test, y_test_score, y_test_level):
+        report_classifier(
+            self.model_name, y_test_level, self.model.predict(X_test).tolist()
+        )
+
+
+# ──────────────────────────────────────────────
+# 등록 — 새 모델은 여기에만 한 줄 추가
+# ──────────────────────────────────────────────
+
+TRAINERS: list[BaseTrainer] = [
+    RidgeTrainer(),
+    LinearSVMTrainer(),
+    LogisticRegressionTrainer(),
+]
+
+
+# ──────────────────────────────────────────────
+# 메인 학습 루프 — 수정 불필요
+# ──────────────────────────────────────────────
 
 def train():
     df = pd.read_csv(DATA_PATH)
     print(f"데이터 로드: {len(df)}개")
     print(f"점수 분포 — min: {df['score'].min():.2f}  max: {df['score'].max():.2f}  mean: {df['score'].mean():.2f}")
 
-    texts = df["text"].tolist()
+    texts  = df["text"].tolist()
     scores = df["score"].tolist()
+    levels = [score_to_level(s) for s in scores]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        texts, scores, test_size=0.2, random_state=42
-    )
+    combined = list(zip(texts, scores, levels))
+    train_data, test_data = train_test_split(combined, test_size=0.2, random_state=42)
 
-    # char n-gram + word n-gram 동시 사용 → 한국어 일반화 성능 향상
+    X_train_txt   = [d[0] for d in train_data]
+    X_test_txt    = [d[0] for d in test_data]
+    y_train_score = np.array([d[1] for d in train_data])
+    y_test_score  = np.array([d[1] for d in test_data])
+    y_train_level = [d[2] for d in train_data]
+    y_test_level  = [d[2] for d in test_data]
+
     vectorizer = TfidfVectorizer(
-        analyzer="char_wb",
-        ngram_range=(2, 4),
-        max_features=15000,
-        sublinear_tf=True,
+        analyzer="char_wb", ngram_range=(2, 4), max_features=15000, sublinear_tf=True,
     )
-    X_train_vec = vectorizer.fit_transform(X_train)
-    X_test_vec = vectorizer.transform(X_test)
+    X_train = vectorizer.fit_transform(X_train_txt)
+    X_test  = vectorizer.transform(X_test_txt)
 
-    model = Ridge(alpha=1.0)
-    model.fit(X_train_vec, y_train)
+    print(f"\n===== 모델 학습 ({len(TRAINERS)}개) =====")
+    for trainer in TRAINERS:
+        trainer.fit(X_train, y_train_score, y_train_level)
+        trainer.evaluate(X_test, y_test_score, y_test_level)
 
-    y_pred = np.clip(model.predict(X_test_vec), 0.0, 1.0)
-
-    print(f"\n[회귀 성능]")
-    print(f"  MAE : {mean_absolute_error(y_test, y_pred):.4f}")
-    print(f"  R²  : {r2_score(y_test, y_pred):.4f}")
-
-    evaluate_level_accuracy(np.array(y_test), y_pred)
-
+    print(f"\n{'─'*44}")
+    print("모델 저장")
     joblib.dump(vectorizer, MODELS_DIR / "tfidf_vectorizer.pkl")
-    joblib.dump(model, MODELS_DIR / "ridge_model.pkl")
-    print(f"\n모델 저장 완료 → {MODELS_DIR}")
+    print("  저장: tfidf_vectorizer.pkl")
+    for trainer in TRAINERS:
+        trainer.save()
 
 
 if __name__ == "__main__":

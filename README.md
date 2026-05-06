@@ -10,10 +10,14 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 
 ## 주요 기능
 
-- **ML 위험도 분석**: TF-IDF + Ridge Regression으로 텍스트 위험 점수(0.0~1.0) 산출
+- **다중 ML 모델**: Ridge Regression / Linear SVM / Logistic Regression 동시 실행 및 결과 저장
+- **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
+- **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
+- **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
 - **LLM 설명 생성**: Ollama(qwen3.5:9b)로 위험 판단 근거를 한국어로 설명
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
-- **Streamlit 대시보드**: 통계, 심사 큐, 분석, 이력 관리 UI
+- **심사 큐 우선순위**: 위험도순 정렬 및 등급별 필터링
+- **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
 
 ## 아키텍처
 
@@ -21,18 +25,19 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 contentguard_ai/
 ├── backend/                  # FastAPI 백엔드
 │   ├── main.py               # 앱 진입점
-│   ├── config.py             # 환경변수 설정
+│   ├── config.py             # 환경변수 설정 (MODEL_PRIMARY, DECISION_POLICY 포함)
 │   ├── database.py           # SQLAlchemy DB 연결
-│   ├── models.py             # ORM 모델 (Contents 테이블)
+│   ├── models.py             # ORM 모델 (contents, model_predictions 테이블)
 │   ├── schemas.py            # Pydantic 요청/응답 스키마
 │   ├── routers/
-│   │   ├── analyze.py        # POST /api/analyze
-│   │   ├── contents.py       # GET /api/contents
-│   │   └── reviews.py        # POST /api/reviews/{id}
+│   │   ├── analyze.py              # POST /api/analyze
+│   │   ├── contents.py             # GET /api/contents, /api/contents/{id}/predictions
+│   │   ├── reviews.py              # POST /api/reviews/{id}
+│   │   └── active_learning.py      # GET /api/active-learning/candidates
 │   └── services/
-│       ├── prediction_service.py  # ML 위험도 예측
-│       ├── llm_service.py         # Ollama LLM 설명 생성
-│       └── risk_service.py        # 규칙 기반 스코어링 (보조)
+│       ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
+│       ├── llm_service.py          # Ollama LLM 설명 생성
+│       └── risk_service.py         # 등급 분류 / 권장 조치 규칙
 ├── dashboard/                # Streamlit 프론트엔드
 │   ├── app.py                # 대시보드 UI (4개 페이지)
 │   └── api_client.py         # FastAPI HTTP 클라이언트
@@ -40,12 +45,15 @@ contentguard_ai/
 │   └── training_data.csv     # ML 학습 데이터 500건
 ├── models/                   # 학습된 모델 파일
 │   ├── tfidf_vectorizer.pkl
-│   └── ridge_model.pkl
+│   ├── ridge_model.pkl
+│   ├── linear_svm_model.pkl
+│   └── logistic_regression_model.pkl
 ├── scripts/
-│   └── train.py              # ML 모델 학습 스크립트
+│   ├── train.py                    # 전체 모델 학습 (Trainer 플러그인 구조)
+│   └── export_active_learning.py   # Active Learning 후보 CSV 내보내기
 ├── .env                      # 환경변수 (로컬용, git 제외)
 ├── .env.example              # 환경변수 템플릿
-├── docker-compose.yml        # PostgreSQL 17 컨테이너
+├── docker-compose.yml        # PostgreSQL 17 + pgAdmin 컨테이너
 └── requirements.txt          # Python 패키지 목록
 ```
 
@@ -55,10 +63,46 @@ contentguard_ai/
 |------|------|
 | 백엔드 | FastAPI, Uvicorn |
 | 데이터베이스 | PostgreSQL 17 (Docker), SQLAlchemy ORM |
-| ML 모델 | scikit-learn (TF-IDF + Ridge Regression) |
+| ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
 | LLM | Ollama (qwen3.5:9b), 로컬 실행 |
 | 프론트엔드 | Streamlit |
 | 인프라 | Docker Compose |
+
+## ML 모델 구조
+
+### 모델 인터페이스
+
+```python
+class BaseMLModel(ABC):
+    name: str
+    version: str
+    model_type: str
+    is_primary: bool
+
+    @abstractmethod
+    def predict(self, text: str) -> dict: ...
+```
+
+새 모델 추가 시 `BaseMLModel`을 상속한 클래스를 작성하고 `TRAINERS` / `ModelRegistry`에 등록하면 됩니다.
+
+### 등록된 모델
+
+| 모델 | 역할 | 등급 정확도 |
+|------|------|------------|
+| `logistic_regression` | primary (최종 판단) | 90% |
+| `linear_svm` | shadow | 77% |
+| `tfidf_ridge` | shadow | 62% |
+
+### Decision Policy
+
+`DECISION_POLICY` 환경변수로 최종 판단 방식을 설정합니다.
+
+| 정책 | 동작 |
+|------|------|
+| `primary_only` | primary 모델 결과만 사용 (기본) |
+| `conservative` | 전체 모델 중 가장 높은 위험 점수 채택 |
+| `ensemble_mean` | 전체 모델 점수 평균 |
+| `majority_vote` | 위험 등급 다수결 (동률 시 높은 등급 우선) |
 
 ## 위험 등급 기준
 
@@ -101,9 +145,11 @@ cp .env.example .env
 
 `.env` 예시:
 ```
-DATABASE_URL=postgresql+psycopg2://contentguard:contentguard@localhost:5434/contentguard_db
+DATABASE_URL=postgresql+psycopg2://admin:admin@localhost:5434/contentguard_db
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
+MODEL_PRIMARY=logistic_regression
+DECISION_POLICY=primary_only
 ```
 
 > WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 OLLAMA_BASE_URL에 사용하세요.
@@ -123,12 +169,16 @@ pip install -r requirements.txt
 docker compose up -d
 ```
 
+pgAdmin: http://localhost:5051 (admin@admin.com / admin)
+
 ### 4. ML 모델 학습
 
 ```bash
 # WSL
 python scripts/train.py
 ```
+
+Ridge / Linear SVM / Logistic Regression 3개 모델을 동시에 학습하고 저장합니다.
 
 ### 5. 백엔드 실행
 
@@ -162,46 +212,89 @@ streamlit run app.py
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
-| POST | `/api/analyze` | 콘텐츠 위험도 분석 |
-| GET | `/api/contents` | 콘텐츠 목록 조회 (status 필터 가능) |
+| POST | `/api/analyze` | 콘텐츠 위험도 분석 (전체 모델 실행) |
+| GET | `/api/contents` | 콘텐츠 목록 조회 (`status` / `risk_level` / `sort_by` 필터) |
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
+| GET | `/api/contents/{id}/predictions` | 콘텐츠별 모델 예측 결과 조회 |
 | POST | `/api/reviews/{id}` | 운영자 심사 결과 제출 |
+| GET | `/api/active-learning/candidates` | 재학습 후보 데이터 조회 |
 
-### 분석 요청 예시
-
-```bash
-curl -X POST http://localhost:8000/api/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"content_id": "C001", "text": "분석할 텍스트 내용"}'
-```
-
-### 심사 제출 예시
+### 주요 쿼리 파라미터
 
 ```bash
-curl -X POST http://localhost:8000/api/reviews/C001 \
-  -H "Content-Type: application/json" \
-  -d '{"action": "approve", "comment": "문제 없음"}'
+# 위험도 높은 순으로 PENDING 콘텐츠 조회
+GET /api/contents?status=PENDING&sort_by=risk_score
+
+# CRITICAL 등급만 필터
+GET /api/contents?status=PENDING&risk_level=CRITICAL
+
+# 모델-운영자 불일치 건만 조회 (재학습 후보)
+GET /api/active-learning/candidates?disagreement_only=true
 ```
 
-## ML 모델 성능
+## Active Learning (모델 재학습)
 
-학습 데이터 500건 기준:
+운영자 심사 결과를 모델 재학습에 활용하는 워크플로우입니다.
 
-| 지표 | 값 |
-|------|-----|
-| MAE | 0.1337 |
-| R² | 0.8081 |
-| 등급 정확도 | 62% |
+```bash
+# 1. 불일치 후보 내보내기
+python scripts/export_active_learning.py
 
-- **특징 추출**: TF-IDF (char_wb, n-gram 2~4, max_features 15,000)
-- **모델**: Ridge Regression (회귀 → 점수 → 등급 분류)
-- **학습 데이터**: 텍스트 + 점수(0.0~1.0) 형식의 500건
+# 전체 심사 완료 건 포함 시
+python scripts/export_active_learning.py --all
+
+# 2. 모델 재학습
+python scripts/train.py
+```
+
+불일치 건의 재학습 점수는 운영자 결정 기준으로 자동 산출됩니다:
+
+| 운영자 결정 | 재학습 점수 |
+|------------|------------|
+| approve | 0.10 (LOW) |
+| monitor | 0.44 (MEDIUM) |
+| hold | 0.72 (HIGH) |
+| remove | 0.92 (CRITICAL) |
+
+## 새 모델 추가 방법
+
+### 1. `scripts/train.py` — Trainer 클래스 작성 후 등록
+
+```python
+class NewModelTrainer(BaseTrainer):
+    model_name = "New Model"
+    save_file  = "new_model.pkl"
+
+    def fit(self, X_train, y_train_score, y_train_level): ...
+    def evaluate(self, X_test, y_test_score, y_test_level): ...
+
+TRAINERS = [
+    RidgeTrainer(),
+    LinearSVMTrainer(),
+    LogisticRegressionTrainer(),
+    NewModelTrainer(),   # ← 추가
+]
+```
+
+### 2. `backend/services/prediction_service.py` — Model 클래스 작성 후 등록
+
+```python
+class NewModel(BaseMLModel):
+    name = "new_model"
+    version = "v1.0.0"
+    model_type = "..."
+    is_primary = False
+
+    def predict(self, text: str) -> dict: ...
+
+prediction_service.register(NewModel())
+```
 
 ## 대시보드 페이지
 
 | 페이지 | 기능 |
 |--------|------|
 | 대시보드 | 전체 통계, 위험 등급 분포 차트, 최근 분석 내역 |
-| 심사 큐 | PENDING 콘텐츠 목록, 승인/삭제/보류/모니터링 버튼 |
-| 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석 |
+| 심사 큐 | 위험도순 정렬, 등급 필터, 모델별 예측 상세, 운영자 판단 버튼 |
+| 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
 | 전체 이력 | 상태별 필터링, AI 설명 및 운영자 메모 조회 |

@@ -30,3 +30,21 @@ class ContentResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ModelPredictionResponse(BaseModel):
+    id: int
+    content_id: str
+    model_name: str
+    model_version: str
+    model_type: str
+    risk_score: float
+    risk_level: str
+    recommended_action: str
+    confidence: Optional[float] = None
+    latency_ms: Optional[int] = None
+    is_selected: bool
+    is_shadow: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

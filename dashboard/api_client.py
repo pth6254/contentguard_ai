@@ -3,8 +3,14 @@ import requests
 BASE_URL = "http://localhost:8000"
 
 
-def get_contents(status: str = None) -> list:
-    params = {"status": status} if status else {}
+def get_contents(status: str = None, sort_by: str = None, risk_level: str = None) -> list:
+    params = {}
+    if status:
+        params["status"] = status
+    if sort_by:
+        params["sort_by"] = sort_by
+    if risk_level:
+        params["risk_level"] = risk_level
     res = requests.get(f"{BASE_URL}/api/contents", params=params)
     res.raise_for_status()
     return res.json()
@@ -30,5 +36,11 @@ def submit_review(content_id: str, action: str, comment: str = "") -> dict:
         f"{BASE_URL}/api/reviews/{content_id}",
         json={"action": action, "comment": comment or None},
     )
+    res.raise_for_status()
+    return res.json()
+
+
+def get_predictions(content_id: str) -> list:
+    res = requests.get(f"{BASE_URL}/api/contents/{content_id}/predictions")
     res.raise_for_status()
     return res.json()

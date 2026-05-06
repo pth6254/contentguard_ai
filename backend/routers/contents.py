@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Content
-from schemas import ContentResponse
+from models import Content, ModelPrediction
+from schemas import ContentResponse, ModelPredictionResponse
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +16,35 @@ router = APIRouter(prefix="/api", tags=["contents"])
 @router.get("/contents", response_model=List[ContentResponse])
 def get_contents(
     status: Optional[str] = Query(None, example="PENDING"),
+    risk_level: Optional[str] = Query(None, example="CRITICAL"),
+    sort_by: Optional[str] = Query(None, example="risk_score"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Content)
     if status:
         query = query.filter(Content.review_status == status.upper())
-    records = query.order_by(Content.created_at.desc()).all()
-    return records
+    if risk_level:
+        query = query.filter(Content.risk_level == risk_level.upper())
+    if sort_by == "risk_score":
+        query = query.order_by(Content.risk_score.desc())
+    else:
+        query = query.order_by(Content.created_at.desc())
+    return query.all()
+
+
+@router.get("/contents/{content_id}/predictions", response_model=List[ModelPredictionResponse])
+def get_predictions(content_id: str, db: Session = Depends(get_db)):
+    if not db.query(Content).filter(Content.content_id == content_id).first():
+        raise HTTPException(
+            status_code=404,
+            detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
+        )
+    return (
+        db.query(ModelPrediction)
+        .filter(ModelPrediction.content_id == content_id)
+        .order_by(ModelPrediction.is_selected.desc(), ModelPrediction.created_at)
+        .all()
+    )
 
 
 @router.get("/contents/{content_id}", response_model=ContentResponse)
