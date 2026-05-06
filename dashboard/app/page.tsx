@@ -1,0 +1,102 @@
+"use client"
+import { useEffect, useState } from "react"
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { api, type Content, type RiskLevel, type ReviewStatus } from "@/lib/api"
+
+const LEVEL_COLOR: Record<RiskLevel, string> = {
+  LOW: "#22c55e", MEDIUM: "#eab308", HIGH: "#f97316", CRITICAL: "#ef4444",
+}
+
+const STATUS_LABEL: Record<ReviewStatus, string> = {
+  PENDING: "대기", APPROVED: "승인", REMOVED: "삭제", HELD: "보류", MONITORED: "모니터링",
+}
+
+export default function DashboardPage() {
+  const [contents, setContents] = useState<Content[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getContents().then(setContents).finally(() => setLoading(false))
+  }, [])
+
+  const total    = contents.length
+  const pending  = contents.filter(c => c.review_status === "PENDING").length
+  const approved = contents.filter(c => c.review_status === "APPROVED").length
+  const removed  = contents.filter(c => c.review_status === "REMOVED").length
+  const held     = contents.filter(c => c.review_status === "HELD").length
+
+  const levelData = (["LOW", "MEDIUM", "HIGH", "CRITICAL"] as RiskLevel[]).map(level => ({
+    level,
+    count: contents.filter(c => c.risk_level === level).length,
+    fill: LEVEL_COLOR[level],
+  }))
+
+  const metrics = [
+    { label: "전체 콘텐츠", value: total },
+    { label: "심사 대기",   value: pending,  highlight: pending > 0 },
+    { label: "승인",        value: approved },
+    { label: "삭제",        value: removed },
+    { label: "보류",        value: held },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold text-slate-100">대시보드</h1>
+
+      {/* 지표 카드 */}
+      <div className="grid grid-cols-5 gap-4">
+        {metrics.map(({ label, value, highlight }) => (
+          <Card key={label}>
+            <CardHeader><CardTitle>{label}</CardTitle></CardHeader>
+            <CardContent>
+              <p className={`text-3xl font-bold ${highlight ? "text-amber-400" : "text-slate-100"}`}>
+                {loading ? "—" : value}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-6">
+        {/* 위험 등급 분포 */}
+        <Card>
+          <CardHeader><CardTitle className="text-slate-100 text-base font-semibold">위험 등급 분포</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={levelData} barSize={40}>
+                <XAxis dataKey="level" tick={{ fill: "#94a3b8", fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+                  labelStyle={{ color: "#f1f5f9" }}
+                  itemStyle={{ color: "#94a3b8" }}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {levelData.map(d => <Cell key={d.level} fill={d.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* 최근 분석 내역 */}
+        <Card>
+          <CardHeader><CardTitle className="text-slate-100 text-base font-semibold">최근 분석 내역</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {loading ? (
+              <p className="text-slate-500 text-sm">불러오는 중...</p>
+            ) : contents.slice(0, 5).map(c => (
+              <div key={c.content_id} className="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
+                <Badge variant={c.risk_level}>{c.risk_level}</Badge>
+                <p className="flex-1 text-sm text-slate-300 truncate">{c.text}</p>
+                <Badge variant={c.review_status}>{STATUS_LABEL[c.review_status]}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
