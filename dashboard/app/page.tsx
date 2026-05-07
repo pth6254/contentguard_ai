@@ -17,17 +17,31 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 }
 
 export default function DashboardPage() {
-  const [contents, setContents]   = useState<Content[]>([])
-  const [totalCount, setTotalCount] = useState(0)
+  const [recent, setRecent]       = useState<Content[]>([])
+  const [stats, setStats]         = useState({ total: 0, pending: 0, approved: 0, removed: 0, held: 0 })
+  const [levelCounts, setLevelCounts] = useState<Record<RiskLevel, number>>({ LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 })
   const [loading, setLoading]     = useState(true)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     setLoading(true)
-    api.getContents({ limit: 500 })
-      .then(({ items, total }) => { setContents(items); setTotalCount(total) })
-      .finally(() => setLoading(false))
+    Promise.all([
+      api.getContents({ limit: 5 }),
+      api.getContents({ limit: 1 }),
+      api.getContents({ status: "PENDING",  limit: 1 }),
+      api.getContents({ status: "APPROVED", limit: 1 }),
+      api.getContents({ status: "REMOVED",  limit: 1 }),
+      api.getContents({ status: "HELD",     limit: 1 }),
+      api.getContents({ risk_level: "LOW",      limit: 1 }),
+      api.getContents({ risk_level: "MEDIUM",   limit: 1 }),
+      api.getContents({ risk_level: "HIGH",     limit: 1 }),
+      api.getContents({ risk_level: "CRITICAL", limit: 1 }),
+    ]).then(([recentR, totalR, pendingR, approvedR, removedR, heldR, lowR, medR, highR, critR]) => {
+      setRecent(recentR.items)
+      setStats({ total: totalR.total, pending: pendingR.total, approved: approvedR.total, removed: removedR.total, held: heldR.total })
+      setLevelCounts({ LOW: lowR.total, MEDIUM: medR.total, HIGH: highR.total, CRITICAL: critR.total })
+    }).finally(() => setLoading(false))
   }, [refreshTick])
 
   useEffect(() => {
@@ -36,23 +50,18 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [autoRefresh])
 
-  const pending  = contents.filter(c => c.review_status === "PENDING").length
-  const approved = contents.filter(c => c.review_status === "APPROVED").length
-  const removed  = contents.filter(c => c.review_status === "REMOVED").length
-  const held     = contents.filter(c => c.review_status === "HELD").length
-
   const levelData = (["LOW", "MEDIUM", "HIGH", "CRITICAL"] as RiskLevel[]).map(level => ({
     level,
-    count: contents.filter(c => c.risk_level === level).length,
+    count: levelCounts[level],
     fill: LEVEL_COLOR[level],
   }))
 
   const metrics = [
-    { label: "전체 콘텐츠", value: totalCount },
-    { label: "심사 대기",   value: pending,  highlight: pending > 0 },
-    { label: "승인",        value: approved },
-    { label: "삭제",        value: removed },
-    { label: "보류",        value: held },
+    { label: "전체 콘텐츠", value: stats.total },
+    { label: "심사 대기",   value: stats.pending,  highlight: stats.pending > 0 },
+    { label: "승인",        value: stats.approved },
+    { label: "삭제",        value: stats.removed },
+    { label: "보류",        value: stats.held },
   ]
 
   return (
@@ -112,7 +121,7 @@ export default function DashboardPage() {
           <CardContent className="space-y-2">
             {loading ? (
               <p className="text-slate-500 text-sm">불러오는 중...</p>
-            ) : contents.slice(0, 5).map(c => (
+            ) : recent.map(c => (
               <div key={c.content_id} className="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
                 <Badge variant={c.risk_level}>{c.risk_level}</Badge>
                 <p className="flex-1 text-sm text-slate-300 truncate">{c.text}</p>
