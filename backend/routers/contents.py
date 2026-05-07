@@ -15,13 +15,13 @@ router = APIRouter(prefix="/api", tags=["contents"])
 
 @router.get("/contents", response_model=List[ContentResponse])
 def get_contents(
+    response: Response,
     status: Optional[str] = Query(None, example="PENDING"),
     risk_level: Optional[str] = Query(None, example="CRITICAL"),
     sort_by: Optional[str] = Query(None, example="risk_score"),
     search: Optional[str] = Query(None, example="사기"),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    response: Response,
     db: Session = Depends(get_db),
 ):
     query = db.query(Content)
