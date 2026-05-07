@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine
-from routers import active_learning, analyze, contents, reviews, upload
+from routers import active_learning, admin, analyze, contents, crawl, reviews, upload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +31,8 @@ app.include_router(contents.router)
 app.include_router(reviews.router)
 app.include_router(active_learning.router)
 app.include_router(upload.router)
+app.include_router(crawl.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

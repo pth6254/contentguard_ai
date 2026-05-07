@@ -72,7 +72,7 @@ export default function UploadPage() {
     if (!file) return
     setUploading(true); setUploadError(null)
     try {
-      setResult(await api.uploadCsv(file))
+      setResult(await api.uploadFile(file))
     } catch (e: unknown) {
       setUploadError(e instanceof Error ? e.message : String(e))
     } finally {

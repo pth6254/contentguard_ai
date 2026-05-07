@@ -32,6 +32,41 @@ class ContentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ClientCreate(BaseModel):
+    name: str = Field(..., example="쇼핑몰A")
+
+
+class ClientResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    created_at: datetime
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = Field(..., example="production-key")
+
+
+class ApiKeyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    client_id: int
+    name: str
+    key_prefix: str
+    is_active: bool
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+
+
+class ApiKeyCreated(ApiKeyResponse):
+    key: str  # 발급 직후 한 번만 반환
+
+
+class CrawlRequest(BaseModel):
+    url: str = Field(..., example="https://example.com/board/1234")
+    max_items: int = Field(20, ge=1, le=50)
+
+
 class UploadError(BaseModel):
     row: int
     content_id: str

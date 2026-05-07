@@ -6,10 +6,32 @@ from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, St
 from database import Base
 
 
+class Client(Base):
+    __tablename__ = "clients"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    client_id    = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    name         = Column(String, nullable=False)
+    key_prefix   = Column(String(16), nullable=False)   # 표시용 앞부분
+    key_hash     = Column(String(64), nullable=False, unique=True)  # SHA-256
+    is_active    = Column(Boolean, default=True, nullable=False)
+    created_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+
+
 class Content(Base):
     __tablename__ = "contents"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id        = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
     content_id = Column(String, unique=True, index=True, nullable=False)
     text = Column(Text, nullable=False)
     risk_score = Column(Float, nullable=False)

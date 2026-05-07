@@ -19,6 +19,9 @@ class Settings:
     # Shadow Mode 설정 — 등록된 모델 이름 중 하나를 지정 (기본: logistic_regression)
     MODEL_PRIMARY: str = os.getenv("MODEL_PRIMARY", "logistic_regression")
 
+    FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
+    ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
+
     # Decision Policy — 복수 모델 결과를 최종 판단으로 합산하는 방식
     #   primary_only  : primary 모델 결과만 사용 (기본)
     #   conservative  : 전체 모델 중 가장 높은 위험 점수 채택

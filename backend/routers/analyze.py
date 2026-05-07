@@ -3,8 +3,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import get_client
 from database import get_db
-from models import Content, ModelPrediction
+from models import Client, Content, ModelPrediction
 from schemas import AnalyzeRequest, ContentResponse
 from services.llm_service import generate_explanation
 from services.prediction_service import prediction_service
@@ -15,7 +16,11 @@ router = APIRouter(prefix="/api", tags=["analyze"])
 
 
 @router.post("/analyze", response_model=ContentResponse, status_code=201)
-def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
+def analyze(
+    request: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client),
+):
     if db.query(Content).filter(Content.content_id == request.content_id).first():
         raise HTTPException(
             status_code=400,
@@ -33,6 +38,7 @@ def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
     )
 
     record = Content(
+        client_id=client.id,
         content_id=request.content_id,
         text=request.text,
         risk_score=final["risk_score"],

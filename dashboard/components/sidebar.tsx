@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LayoutDashboard, ClipboardList, Search, History, Shield, Upload } from "lucide-react"
+import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 
@@ -10,8 +10,9 @@ const NAV = [
   { href: "/",        label: "대시보드",    icon: LayoutDashboard },
   { href: "/queue",   label: "심사 큐",     icon: ClipboardList },
   { href: "/analyze", label: "콘텐츠 분석", icon: Search },
-  { href: "/history", label: "전체 이력",   icon: History },
-  { href: "/upload",  label: "CSV 업로드",  icon: Upload },
+  { href: "/history",  label: "전체 이력",   icon: History },
+  { href: "/collect",  label: "데이터 수집",  icon: DatabaseZap },
+  { href: "/admin",    label: "API 키 관리",  icon: Settings },
 ]
 
 export function Sidebar() {

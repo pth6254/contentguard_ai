@@ -21,6 +21,7 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
 - **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
 - **CSV 일괄 업로드**: 드래그&드롭으로 CSV 파일 업로드 후 일괄 분석, 저장/중복/오류 건수 반환
+- **시연용 크롤링 파이프라인**: Firecrawl로 외부 페이지 수집 → Ollama로 텍스트 추출 → ContentGuard 자동 분석
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
 
 ## 아키텍처
@@ -71,6 +72,7 @@ contentguard_ai/
 ├── scripts/
 │   ├── train.py                    # 전체 모델 학습 (Trainer 플러그인 구조)
 │   ├── seed_data.py                # 대시보드 테스트용 샘플 데이터 DB 전송 (20건)
+│   ├── demo_crawl.py               # 시연용: Firecrawl + Ollama → ContentGuard 파이프라인
 │   └── export_active_learning.py   # Active Learning 후보 CSV 내보내기
 ├── .env                      # 환경변수 (로컬용, git 제외)
 ├── .env.example              # 환경변수 템플릿
@@ -174,6 +176,7 @@ OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
 MODEL_PRIMARY=logistic_regression
 DECISION_POLICY=primary_only
+FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
 ```
 
 > WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 OLLAMA_BASE_URL에 사용하세요.
@@ -248,6 +251,24 @@ python scripts/seed_data.py --url http://0.0.0.0:8000
 ```
 
 LOW / MEDIUM / HIGH / CRITICAL 각 5건씩 총 20건이 DB에 저장됩니다.
+
+### 9. 시연용 크롤링 파이프라인 (선택)
+
+외부 웹페이지를 실시간으로 크롤링해 ContentGuard에 분석을 요청하는 시연 스크립트입니다.
+`.env`에 `FIRECRAWL_API_KEY`가 설정되어 있어야 합니다.
+
+```bash
+# WSL (contentguard_ai/ 루트에서)
+python scripts/demo_crawl.py --url "https://크롤링할페이지URL"
+
+# 옵션
+python scripts/demo_crawl.py \
+  --url "https://..." \
+  --max 20 \        # 최대 추출 건수 (기본 20)
+  --delay 0.5       # 요청 간격 초 (기본 0.5)
+```
+
+**동작 흐름**: Firecrawl로 페이지 수집 → Ollama(`qwen3.5:9b`)로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
 
 ## API 엔드포인트
 
