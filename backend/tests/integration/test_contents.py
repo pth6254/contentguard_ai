@@ -48,6 +48,65 @@ class TestGetContents:
         assert response.status_code == 200
 
 
+class TestGetContentsPagination:
+    def test_x_total_count_header_present(self, analyzed_content, client):
+        response = client.get("/api/contents")
+        assert "x-total-count" in response.headers
+        assert response.headers["x-total-count"] == "1"
+
+    def test_x_total_count_zero_when_empty(self, client):
+        response = client.get("/api/contents")
+        assert response.headers["x-total-count"] == "0"
+
+    def test_limit_restricts_results(self, analyzed_content, client):
+        response = client.get("/api/contents?limit=1")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    def test_offset_skips_results(self, analyzed_content, client):
+        response = client.get("/api/contents?offset=1")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_limit_minimum_is_one(self, client):
+        response = client.get("/api/contents?limit=0")
+        assert response.status_code == 422
+
+    def test_limit_maximum_is_200(self, client):
+        response = client.get("/api/contents?limit=201")
+        assert response.status_code == 422
+
+    def test_offset_cannot_be_negative(self, client):
+        response = client.get("/api/contents?offset=-1")
+        assert response.status_code == 422
+
+
+class TestGetContentsSearch:
+    def test_search_matches_text(self, analyzed_content, client):
+        response = client.get("/api/contents?search=테스트")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    def test_search_matches_content_id(self, analyzed_content, client):
+        response = client.get("/api/contents?search=TEST001")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    def test_search_is_case_insensitive(self, analyzed_content, client):
+        response = client.get("/api/contents?search=test001")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    def test_search_no_match_returns_empty(self, analyzed_content, client):
+        response = client.get("/api/contents?search=존재하지않는텍스트xyz")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_search_updates_x_total_count(self, analyzed_content, client):
+        response = client.get("/api/contents?search=존재하지않는텍스트xyz")
+        assert response.headers["x-total-count"] == "0"
+
+
 class TestGetContentById:
     def test_returns_content(self, analyzed_content, client):
         response = client.get("/api/contents/TEST001")

@@ -1,9 +1,12 @@
 "use client"
 import { useEffect, useState } from "react"
+import { RefreshCw } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { api, type Content, type RiskLevel, type ReviewStatus } from "@/lib/api"
+
+const REFRESH_INTERVAL = 30_000
 
 const LEVEL_COLOR: Record<RiskLevel, string> = {
   LOW: "#22c55e", MEDIUM: "#eab308", HIGH: "#f97316", CRITICAL: "#ef4444",
@@ -14,14 +17,25 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 }
 
 export default function DashboardPage() {
-  const [contents, setContents] = useState<Content[]>([])
-  const [loading, setLoading] = useState(true)
+  const [contents, setContents]   = useState<Content[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [loading, setLoading]     = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
-    api.getContents().then(setContents).finally(() => setLoading(false))
-  }, [])
+    setLoading(true)
+    api.getContents({ limit: 500 })
+      .then(({ items, total }) => { setContents(items); setTotalCount(total) })
+      .finally(() => setLoading(false))
+  }, [refreshTick])
 
-  const total    = contents.length
+  useEffect(() => {
+    if (!autoRefresh) return
+    const id = setInterval(() => setRefreshTick(t => t + 1), REFRESH_INTERVAL)
+    return () => clearInterval(id)
+  }, [autoRefresh])
+
   const pending  = contents.filter(c => c.review_status === "PENDING").length
   const approved = contents.filter(c => c.review_status === "APPROVED").length
   const removed  = contents.filter(c => c.review_status === "REMOVED").length
@@ -34,7 +48,7 @@ export default function DashboardPage() {
   }))
 
   const metrics = [
-    { label: "전체 콘텐츠", value: total },
+    { label: "전체 콘텐츠", value: totalCount },
     { label: "심사 대기",   value: pending,  highlight: pending > 0 },
     { label: "승인",        value: approved },
     { label: "삭제",        value: removed },
@@ -43,7 +57,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-100">대시보드</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-100">대시보드</h1>
+        <button
+          onClick={() => setAutoRefresh(a => !a)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors ${
+            autoRefresh ? "bg-slate-800 text-emerald-400" : "bg-slate-800 text-slate-500"
+          }`}
+        >
+          <RefreshCw className={`h-3 w-3 ${autoRefresh && loading ? "animate-spin" : ""}`} />
+          자동 새로고침
+        </button>
+      </div>
 
       {/* 지표 카드 */}
       <div className="grid grid-cols-5 gap-4">

@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -18,6 +18,10 @@ def get_contents(
     status: Optional[str] = Query(None, example="PENDING"),
     risk_level: Optional[str] = Query(None, example="CRITICAL"),
     sort_by: Optional[str] = Query(None, example="risk_score"),
+    search: Optional[str] = Query(None, example="사기"),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    response: Response,
     db: Session = Depends(get_db),
 ):
     query = db.query(Content)
@@ -25,11 +29,19 @@ def get_contents(
         query = query.filter(Content.review_status == status.upper())
     if risk_level:
         query = query.filter(Content.risk_level == risk_level.upper())
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            Content.text.ilike(pattern) | Content.content_id.ilike(pattern)
+        )
     if sort_by == "risk_score":
         query = query.order_by(Content.risk_score.desc())
     else:
         query = query.order_by(Content.created_at.desc())
-    return query.all()
+
+    total = query.count()
+    response.headers["X-Total-Count"] = str(total)
+    return query.offset(offset).limit(limit).all()
 
 
 @router.get("/contents/{content_id}/predictions", response_model=List[ModelPredictionResponse])

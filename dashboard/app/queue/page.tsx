@@ -1,59 +1,19 @@
 "use client"
-import { useEffect, useState } from "react"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronUp, RefreshCw, Search, X } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
-import { api, type Content, type ModelPrediction, type RiskLevel, type ReviewAction } from "@/lib/api"
+import { Dialog, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { api, type Content, type ModelPrediction, type RiskLevel } from "@/lib/api"
+import { Pagination } from "@/components/ui/pagination"
+import { ReviewDialog } from "@/components/review-dialog"
 
 const LEVEL_COUNT_COLOR: Record<RiskLevel, string> = {
   LOW: "text-emerald-400", MEDIUM: "text-yellow-400", HIGH: "text-orange-400", CRITICAL: "text-red-400",
 }
 
-function ReviewDialog({ content, onDone }: { content: Content; onDone: () => void }) {
-  const [comment, setComment] = useState("")
-  const [loading, setLoading] = useState(false)
-
-  const act = async (action: ReviewAction) => {
-    setLoading(true)
-    try {
-      await api.review(content.content_id, action, comment)
-      onDone()
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>운영자 판단 — {content.content_id}</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4">
-        <p className="text-sm text-slate-300 leading-relaxed">{content.text}</p>
-        {content.explanation && (
-          <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400 leading-relaxed">
-            {content.explanation}
-          </div>
-        )}
-        <Textarea
-          placeholder="메모 (선택)"
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-          className="h-20"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="success"     onClick={() => act("approve")} disabled={loading}>승인</Button>
-          <Button variant="ghost"       onClick={() => act("monitor")} disabled={loading}>모니터링</Button>
-          <Button variant="warning"     onClick={() => act("hold")}    disabled={loading}>보류</Button>
-          <Button variant="destructive" onClick={() => act("remove")}  disabled={loading}>삭제</Button>
-        </div>
-      </div>
-    </DialogContent>
-  )
-}
 
 function PredictionsRow({ contentId }: { contentId: string }) {
   const [preds, setPreds] = useState<ModelPrediction[] | null>(null)
@@ -87,20 +47,56 @@ function PredictionsRow({ contentId }: { contentId: string }) {
   )
 }
 
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100] as const
+const REFRESH_INTERVAL = 30_000
+
 export default function QueuePage() {
   const [items, setItems]       = useState<Content[]>([])
   const [sortBy, setSortBy]     = useState<"risk_score" | "created_at">("risk_score")
   const [levelFilter, setLevel] = useState<string>("")
+  const [search, setSearch]     = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [loading, setLoading]   = useState(true)
+  const [page, setPage]         = useState(0)
+  const [total, setTotal]       = useState(0)
+  const [pageSize, setPageSize] = useState(30)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const mounted = useRef(false)
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return }
+    setPage(0)
+  }, [debouncedSearch])
 
   const load = () => {
     setLoading(true)
-    api.getContents({ status: "PENDING", sort_by: sortBy, risk_level: levelFilter || undefined })
-      .then(setItems)
+    api.getContents({
+      status: "PENDING",
+      sort_by: sortBy,
+      risk_level: levelFilter || undefined,
+      search: debouncedSearch || undefined,
+      limit: pageSize,
+      offset: page * pageSize,
+    })
+      .then(({ items, total }) => { setItems(items); setTotal(total) })
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [sortBy, levelFilter])
+  useEffect(() => { load() }, [page, sortBy, levelFilter, pageSize, debouncedSearch, refreshTick])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+    const id = setInterval(() => setRefreshTick(t => t + 1), REFRESH_INTERVAL)
+    return () => clearInterval(id)
+  }, [autoRefresh])
 
   const counts = (["CRITICAL", "HIGH", "MEDIUM", "LOW"] as RiskLevel[]).map(l => ({
     level: l, count: items.filter(c => c.risk_level === l).length,
@@ -108,7 +104,18 @@ export default function QueuePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-100">심사 큐</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-100">심사 큐</h1>
+        <button
+          onClick={() => setAutoRefresh(a => !a)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors ${
+            autoRefresh ? "bg-slate-800 text-emerald-400" : "bg-slate-800 text-slate-500"
+          }`}
+        >
+          <RefreshCw className={`h-3 w-3 ${autoRefresh && loading ? "animate-spin" : ""}`} />
+          자동 새로고침
+        </button>
+      </div>
 
       {/* 긴급도 요약 */}
       <div className="flex items-center gap-6">
@@ -120,6 +127,25 @@ export default function QueuePage() {
         ))}
       </div>
 
+      {/* 검색 */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
+        <Input
+          placeholder="텍스트 또는 ID 검색..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9 pr-9"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {/* 컨트롤 */}
       <div className="flex items-center gap-3">
         {[
@@ -128,7 +154,7 @@ export default function QueuePage() {
         ].map(opt => (
           <button
             key={opt.value}
-            onClick={() => setSortBy(opt.value as typeof sortBy)}
+            onClick={() => { setSortBy(opt.value as typeof sortBy); setPage(0) }}
             className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
               sortBy === opt.value ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-100"
             }`}
@@ -140,7 +166,7 @@ export default function QueuePage() {
         {(["", "CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map(l => (
           <button
             key={l}
-            onClick={() => setLevel(l)}
+            onClick={() => { setLevel(l); setPage(0) }}
             className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
               levelFilter === l ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-100"
             }`}
@@ -148,6 +174,19 @@ export default function QueuePage() {
             {l || "전체"}
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-1">
+          {PAGE_SIZE_OPTIONS.map(n => (
+            <button
+              key={n}
+              onClick={() => { setPageSize(n); setPage(0) }}
+              className={`px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                pageSize === n ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-100"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 목록 */}
@@ -155,7 +194,7 @@ export default function QueuePage() {
         <p className="text-slate-500">불러오는 중...</p>
       ) : items.length === 0 ? (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-12 text-center text-slate-400">
-          심사 대기 중인 콘텐츠가 없습니다.
+          {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : "심사 대기 중인 콘텐츠가 없습니다."}
         </div>
       ) : (
         <div className="space-y-3">
@@ -182,7 +221,13 @@ export default function QueuePage() {
                       <DialogTrigger asChild>
                         <Button size="sm">심사하기</Button>
                       </DialogTrigger>
-                      <ReviewDialog content={item} onDone={load} />
+                      <ReviewDialog
+                        content={item}
+                        onDone={() => {
+                          if (items.length <= 1 && page > 0) setPage(p => p - 1)
+                          else load()
+                        }}
+                      />
                     </Dialog>
                   </div>
                 </div>
@@ -191,6 +236,8 @@ export default function QueuePage() {
           ))}
         </div>
       )}
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   )
 }

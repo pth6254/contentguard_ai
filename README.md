@@ -16,7 +16,10 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
 - **LLM 설명 생성**: Ollama(qwen3.5:9b)로 위험 판단 근거를 한국어로 설명
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
-- **심사 큐 우선순위**: 위험도순 정렬 및 등급별 필터링
+- **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
+- **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
+- **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
+- **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
 
 ## 아키텍처
@@ -31,16 +34,29 @@ contentguard_ai/
 │   ├── schemas.py            # Pydantic 요청/응답 스키마
 │   ├── routers/
 │   │   ├── analyze.py              # POST /api/analyze
-│   │   ├── contents.py             # GET /api/contents, /api/contents/{id}/predictions
+│   │   ├── contents.py             # GET /api/contents (페이지네이션·검색 지원)
 │   │   ├── reviews.py              # POST /api/reviews/{id}
 │   │   └── active_learning.py      # GET /api/active-learning/candidates
-│   └── services/
-│       ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
-│       ├── llm_service.py          # Ollama LLM 설명 생성
-│       └── risk_service.py         # 등급 분류 / 권장 조치 규칙
-├── dashboard/                # Streamlit 프론트엔드
-│   ├── app.py                # 대시보드 UI (4개 페이지)
-│   └── api_client.py         # FastAPI HTTP 클라이언트
+│   ├── services/
+│   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
+│   │   ├── llm_service.py          # Ollama LLM 설명 생성
+│   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
+│   └── tests/
+│       ├── unit/                   # 단위 테스트 (risk_service, prediction_logic, schemas)
+│       └── integration/            # 통합 테스트 (analyze, contents, reviews, active_learning)
+├── dashboard/                # Next.js 프론트엔드
+│   ├── app/
+│   │   ├── page.tsx                # 대시보드 (통계·차트·자동 새로고침)
+│   │   ├── queue/page.tsx          # 심사 큐 (검색·필터·페이지네이션·자동 새로고침)
+│   │   ├── analyze/page.tsx        # 콘텐츠 분석 입력
+│   │   └── history/page.tsx        # 전체 이력 (검색·필터·페이지네이션·재변경)
+│   ├── components/
+│   │   ├── review-dialog.tsx       # 심사·재변경 공유 다이얼로그
+│   │   ├── sidebar.tsx             # 사이드바 내비게이션
+│   │   └── ui/                     # Badge, Button, Card, Dialog, Input, Pagination 등
+│   └── lib/
+│       ├── api.ts                  # FastAPI HTTP 클라이언트 (페이지네이션 응답 처리)
+│       └── utils.ts
 ├── data/
 │   └── training_data.csv     # ML 학습 데이터 500건
 ├── models/                   # 학습된 모델 파일
@@ -65,7 +81,7 @@ contentguard_ai/
 | 데이터베이스 | PostgreSQL 17 (Docker), SQLAlchemy ORM |
 | ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
 | LLM | Ollama (qwen3.5:9b), 로컬 실행 |
-| 프론트엔드 | Streamlit |
+| 프론트엔드 | Next.js 14, TypeScript, Tailwind CSS |
 | 인프라 | Docker Compose |
 
 ## ML 모델 구조
@@ -125,6 +141,8 @@ PENDING (AI 분석 완료, 심사 대기)
     ├── 삭제 → REMOVED
     ├── 보류 → HELD
     └── 모니터링 → MONITORED
+
+* 심사 완료 후에도 이력 페이지에서 판단 재변경 가능
 ```
 
 ## 시작하기
@@ -132,6 +150,7 @@ PENDING (AI 분석 완료, 심사 대기)
 ### 사전 요구사항
 
 - Python 3.10+
+- Node.js 18+
 - Docker Desktop
 - Ollama (Windows에서 실행, qwen3.5:9b 모델 필요)
 - WSL2 (백엔드 실행 환경)
@@ -157,9 +176,14 @@ DECISION_POLICY=primary_only
 ### 2. 패키지 설치
 
 ```bash
+# 백엔드 (WSL)
 python -m venv venv
-source venv/bin/activate  # WSL
+source venv/bin/activate
 pip install -r requirements.txt
+
+# 프론트엔드
+cd dashboard
+npm install
 ```
 
 ### 3. PostgreSQL 실행
@@ -200,12 +224,11 @@ ollama serve
 ### 7. 대시보드 실행
 
 ```bash
-# WSL (별도 터미널)
-cd dashboard
-streamlit run app.py
+# dashboard 디렉토리
+npm run dev
 ```
 
-대시보드: http://localhost:8501
+대시보드: http://localhost:3000
 
 ## API 엔드포인트
 
@@ -213,24 +236,47 @@ streamlit run app.py
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
 | POST | `/api/analyze` | 콘텐츠 위험도 분석 (전체 모델 실행) |
-| GET | `/api/contents` | 콘텐츠 목록 조회 (`status` / `risk_level` / `sort_by` 필터) |
+| GET | `/api/contents` | 콘텐츠 목록 조회 |
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
 | GET | `/api/contents/{id}/predictions` | 콘텐츠별 모델 예측 결과 조회 |
-| POST | `/api/reviews/{id}` | 운영자 심사 결과 제출 |
+| POST | `/api/reviews/{id}` | 운영자 심사 결과 제출 (재변경 포함) |
 | GET | `/api/active-learning/candidates` | 재학습 후보 데이터 조회 |
 
-### 주요 쿼리 파라미터
+### GET /api/contents 쿼리 파라미터
+
+| 파라미터 | 타입 | 기본값 | 설명 |
+|----------|------|--------|------|
+| `status` | string | - | 심사 상태 필터 (PENDING / APPROVED / REMOVED / HELD / MONITORED) |
+| `risk_level` | string | - | 위험 등급 필터 (LOW / MEDIUM / HIGH / CRITICAL) |
+| `sort_by` | string | created_at | 정렬 기준 (`risk_score` 또는 `created_at`) |
+| `search` | string | - | 텍스트·content_id 부분 검색 (대소문자 무시) |
+| `limit` | int | 20 | 페이지 크기 (1~200) |
+| `offset` | int | 0 | 페이지 오프셋 |
+
+응답 헤더 `X-Total-Count`에 필터 적용 후 전체 건수가 포함됩니다.
 
 ```bash
-# 위험도 높은 순으로 PENDING 콘텐츠 조회
-GET /api/contents?status=PENDING&sort_by=risk_score
+# 위험도 높은 순으로 PENDING 콘텐츠 2페이지 조회
+GET /api/contents?status=PENDING&sort_by=risk_score&limit=20&offset=20
 
-# CRITICAL 등급만 필터
-GET /api/contents?status=PENDING&risk_level=CRITICAL
+# "사기" 텍스트 검색
+GET /api/contents?search=사기
+
+# CRITICAL 등급 필터
+GET /api/contents?risk_level=CRITICAL
 
 # 모델-운영자 불일치 건만 조회 (재학습 후보)
 GET /api/active-learning/candidates?disagreement_only=true
 ```
+
+## 대시보드 페이지
+
+| 페이지 | 기능 |
+|--------|------|
+| 대시보드 | 전체 통계, 위험 등급 분포 차트, 최근 분석 내역, 30초 자동 새로고침 |
+| 심사 큐 | 검색, 위험도순 정렬, 등급 필터, 페이지 크기 선택, 페이지네이션, 모델별 예측 상세, 운영자 판단, 30초 자동 새로고침 |
+| 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
+| 전체 이력 | 검색, 상태별 필터, 페이지 크기 선택, 페이지네이션, AI 설명·운영자 메모 조회, 심사 결과 재변경 |
 
 ## Active Learning (모델 재학습)
 
@@ -289,12 +335,3 @@ class NewModel(BaseMLModel):
 
 prediction_service.register(NewModel())
 ```
-
-## 대시보드 페이지
-
-| 페이지 | 기능 |
-|--------|------|
-| 대시보드 | 전체 통계, 위험 등급 분포 차트, 최근 분석 내역 |
-| 심사 큐 | 위험도순 정렬, 등급 필터, 모델별 예측 상세, 운영자 판단 버튼 |
-| 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
-| 전체 이력 | 상태별 필터링, AI 설명 및 운영자 메모 조회 |

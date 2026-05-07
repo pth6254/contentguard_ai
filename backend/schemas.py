@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AnalyzeRequest(BaseModel):
@@ -29,10 +29,12 @@ class ContentResponse(BaseModel):
     reviewed_at: Optional[datetime] = None
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ModelPredictionResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
+
     id: int
     content_id: str
     model_name: str
@@ -46,5 +48,3 @@ class ModelPredictionResponse(BaseModel):
     is_selected: bool
     is_shadow: bool
     created_at: datetime
-
-    model_config = {"from_attributes": True}

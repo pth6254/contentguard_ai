@@ -1,8 +1,13 @@
 "use client"
-import { useEffect, useState } from "react"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { api, type Content, type ReviewStatus, type RiskLevel } from "@/lib/api"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogTrigger } from "@/components/ui/dialog"
+import { api, type Content, type ReviewStatus } from "@/lib/api"
+import { Pagination } from "@/components/ui/pagination"
+import { ReviewDialog } from "@/components/review-dialog"
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "전체" },
@@ -13,7 +18,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "MONITORED", label: "모니터링" },
 ]
 
-function ExpandRow({ item }: { item: Content }) {
+function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="border-b border-slate-700 last:border-0">
@@ -27,6 +32,14 @@ function ExpandRow({ item }: { item: Content }) {
         <span className="font-mono text-sm text-slate-400">{item.risk_score.toFixed(2)}</span>
         <Badge variant={item.review_status as ReviewStatus}>{item.review_status}</Badge>
         <span className="text-xs text-slate-600">{item.created_at.slice(0, 10)}</span>
+        <Dialog>
+          <DialogTrigger asChild onClick={e => e.stopPropagation()}>
+            <Button size="sm" variant="ghost" className="text-xs text-slate-400 hover:text-slate-100 h-7 px-2">
+              재변경
+            </Button>
+          </DialogTrigger>
+          <ReviewDialog content={item} onDone={onReload} />
+        </Dialog>
         {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
       </div>
       {open && (
@@ -49,28 +62,76 @@ function ExpandRow({ item }: { item: Content }) {
   )
 }
 
-export default function HistoryPage() {
-  const [items, setItems]   = useState<Content[]>([])
-  const [status, setStatus] = useState("")
-  const [loading, setLoading] = useState(true)
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100] as const
 
+export default function HistoryPage() {
+  const [items, setItems]       = useState<Content[]>([])
+  const [status, setStatus]     = useState("")
+  const [search, setSearch]     = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [loading, setLoading]   = useState(true)
+  const [page, setPage]         = useState(0)
+  const [total, setTotal]       = useState(0)
+  const [pageSize, setPageSize] = useState(30)
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  // 300ms 디바운스
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // 검색어 변경 시 1페이지로 리셋 (초기 마운트 제외)
+  const mounted = useRef(false)
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return }
+    setPage(0)
+  }, [debouncedSearch])
+
+  const load = () => {
     setLoading(true)
-    api.getContents({ status: status || undefined })
-      .then(setItems)
+    api.getContents({
+      status: status || undefined,
+      search: debouncedSearch || undefined,
+      limit: pageSize,
+      offset: page * pageSize,
+    })
+      .then(({ items, total }) => { setItems(items); setTotal(total) })
       .finally(() => setLoading(false))
-  }, [status])
+  }
+
+  useEffect(() => { load() }, [status, page, pageSize, debouncedSearch])
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-100">전체 이력</h1>
+
+      {/* 검색 */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
+        <Input
+          placeholder="텍스트 또는 ID 검색..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9 pr-9"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
       {/* 상태 필터 */}
       <div className="flex items-center gap-2">
         {STATUS_OPTIONS.map(opt => (
           <button
             key={opt.value}
-            onClick={() => setStatus(opt.value)}
+            onClick={() => { setStatus(opt.value); setPage(0) }}
             className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
               status === opt.value
                 ? "bg-indigo-600 text-white"
@@ -80,7 +141,22 @@ export default function HistoryPage() {
             {opt.label}
           </button>
         ))}
-        <span className="ml-auto text-sm text-slate-500">총 {items.length}건</span>
+        <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            {PAGE_SIZE_OPTIONS.map(n => (
+              <button
+                key={n}
+                onClick={() => { setPageSize(n); setPage(0) }}
+                className={`px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                  pageSize === n ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-100"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <span className="text-sm text-slate-500">총 {total}건</span>
+        </div>
       </div>
 
       {/* 테이블 */}
@@ -88,11 +164,15 @@ export default function HistoryPage() {
         {loading ? (
           <p className="p-6 text-slate-500 text-sm">불러오는 중...</p>
         ) : items.length === 0 ? (
-          <p className="p-6 text-slate-500 text-sm text-center">데이터가 없습니다.</p>
+          <p className="p-6 text-slate-500 text-sm text-center">
+            {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : "데이터가 없습니다."}
+          </p>
         ) : (
-          items.map(item => <ExpandRow key={item.content_id} item={item} />)
+          items.map(item => <ExpandRow key={item.content_id} item={item} onReload={load} />)
         )}
       </div>
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   )
 }

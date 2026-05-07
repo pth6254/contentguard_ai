@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -28,6 +28,8 @@ ACTION_TO_SCORE = {
 
 
 class ActiveLearningCandidate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     content_id: str
     text: str
     model_risk_level: str
