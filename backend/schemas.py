@@ -32,6 +32,19 @@ class ContentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UploadError(BaseModel):
+    row: int
+    content_id: str
+    reason: str
+
+
+class UploadResult(BaseModel):
+    total: int
+    saved: int
+    skipped: int
+    errors: list[UploadError]
+
+
 class ModelPredictionResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
 

@@ -20,6 +20,7 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
 - **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
 - **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
+- **CSV 일괄 업로드**: 드래그&드롭으로 CSV 파일 업로드 후 일괄 분석, 저장/중복/오류 건수 반환
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
 
 ## 아키텍처
@@ -36,6 +37,7 @@ contentguard_ai/
 │   │   ├── analyze.py              # POST /api/analyze
 │   │   ├── contents.py             # GET /api/contents (페이지네이션·검색 지원)
 │   │   ├── reviews.py              # POST /api/reviews/{id}
+│   │   ├── upload.py               # POST /api/upload/csv (CSV 일괄 업로드)
 │   │   └── active_learning.py      # GET /api/active-learning/candidates
 │   ├── services/
 │   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
@@ -49,7 +51,8 @@ contentguard_ai/
 │   │   ├── page.tsx                # 대시보드 (병렬 카운트 조회·차트·자동 새로고침)
 │   │   ├── queue/page.tsx          # 심사 큐 (검색·필터·페이지네이션·자동 새로고침)
 │   │   ├── analyze/page.tsx        # 콘텐츠 분석 입력
-│   │   └── history/page.tsx        # 전체 이력 (검색·필터·페이지네이션·재변경)
+│   │   ├── history/page.tsx        # 전체 이력 (검색·필터·페이지네이션·재변경)
+│   │   └── upload/page.tsx         # CSV 일괄 업로드 (드래그&드롭·미리보기·결과)
 │   ├── components/
 │   │   ├── review-dialog.tsx       # 심사·재변경 공유 다이얼로그
 │   │   ├── sidebar.tsx             # 사이드바 내비게이션
@@ -58,7 +61,8 @@ contentguard_ai/
 │       ├── api.ts                  # FastAPI HTTP 클라이언트 (페이지네이션 응답 처리)
 │       └── utils.ts
 ├── data/
-│   └── training_data.csv     # ML 학습 데이터 500건
+│   ├── training_data.csv     # ML 학습 데이터 500건
+│   └── test_data.csv         # 모델 평가용 별도 테스트 데이터 70건 (4등급 고루 분포)
 ├── models/                   # 학습된 모델 파일
 │   ├── tfidf_vectorizer.pkl
 │   ├── ridge_model.pkl
@@ -66,6 +70,7 @@ contentguard_ai/
 │   └── logistic_regression_model.pkl
 ├── scripts/
 │   ├── train.py                    # 전체 모델 학습 (Trainer 플러그인 구조)
+│   ├── seed_data.py                # 대시보드 테스트용 샘플 데이터 DB 전송 (20건)
 │   └── export_active_learning.py   # Active Learning 후보 CSV 내보내기
 ├── .env                      # 환경변수 (로컬용, git 제외)
 ├── .env.example              # 환경변수 템플릿
@@ -230,6 +235,20 @@ npm run dev
 
 대시보드: http://localhost:3000
 
+### 8. 테스트 데이터 주입 (선택)
+
+대시보드에 표시할 샘플 데이터가 없을 때 실행합니다. 백엔드가 실행 중이어야 합니다.
+
+```bash
+# WSL (contentguard_ai/ 루트에서)
+python scripts/seed_data.py
+
+# 백엔드가 다른 주소에서 실행 중인 경우
+python scripts/seed_data.py --url http://0.0.0.0:8000
+```
+
+LOW / MEDIUM / HIGH / CRITICAL 각 5건씩 총 20건이 DB에 저장됩니다.
+
 ## API 엔드포인트
 
 | 메서드 | 경로 | 설명 |
@@ -240,6 +259,7 @@ npm run dev
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
 | GET | `/api/contents/{id}/predictions` | 콘텐츠별 모델 예측 결과 조회 |
 | POST | `/api/reviews/{id}` | 운영자 심사 결과 제출 (재변경 포함) |
+| POST | `/api/upload/csv` | CSV 파일 일괄 업로드 및 분석 |
 | GET | `/api/active-learning/candidates` | 재학습 후보 데이터 조회 |
 
 ### GET /api/contents 쿼리 파라미터
@@ -277,6 +297,7 @@ GET /api/active-learning/candidates?disagreement_only=true
 | 심사 큐 | 검색, 위험도순 정렬, 등급 필터, 페이지 크기 선택, 페이지네이션, 모델별 예측 상세, 운영자 판단, 30초 자동 새로고침 |
 | 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
 | 전체 이력 | 검색, 상태별 필터, 페이지 크기 선택, 페이지네이션, AI 설명·운영자 메모 조회, 심사 결과 재변경 |
+| CSV 업로드 | CSV 드래그&드롭 업로드, 미리보기, 일괄 분석, 저장/중복/오류 결과 표시 |
 
 ## Active Learning (모델 재학습)
 
