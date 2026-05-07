@@ -1,3 +1,26 @@
+from tests.conftest import OPERATOR_SECRET
+
+
+class TestActiveLearningAuth:
+    def test_missing_secret_returns_401(self, unauth_client):
+        response = unauth_client.get("/api/active-learning/candidates")
+        assert response.status_code == 401
+
+    def test_wrong_secret_returns_401(self, unauth_client):
+        response = unauth_client.get(
+            "/api/active-learning/candidates",
+            headers={"x-admin-secret": "wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_correct_secret_returns_200(self, unauth_client):
+        response = unauth_client.get(
+            "/api/active-learning/candidates",
+            headers={"x-admin-secret": OPERATOR_SECRET},
+        )
+        assert response.status_code == 200
+
+
 class TestActiveLearningEndpoint:
     def test_returns_empty_when_no_reviews(self, client):
         response = client.get("/api/active-learning/candidates")

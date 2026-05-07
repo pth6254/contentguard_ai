@@ -1,4 +1,18 @@
-from tests.conftest import MOCK_FINAL_RESULT
+from tests.conftest import MOCK_FINAL_RESULT, OPERATOR_SECRET
+
+
+class TestContentsAuth:
+    def test_missing_secret_returns_401(self, unauth_client):
+        response = unauth_client.get("/api/contents")
+        assert response.status_code == 401
+
+    def test_wrong_secret_returns_401(self, unauth_client):
+        response = unauth_client.get("/api/contents", headers={"x-admin-secret": "wrong"})
+        assert response.status_code == 401
+
+    def test_correct_secret_returns_200(self, unauth_client):
+        response = unauth_client.get("/api/contents", headers={"x-admin-secret": OPERATOR_SECRET})
+        assert response.status_code == 200
 
 
 class TestGetContents:

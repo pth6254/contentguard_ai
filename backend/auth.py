@@ -3,6 +3,7 @@ import hashlib
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models import ApiKey, Client
 
@@ -38,3 +39,11 @@ def get_client(
     if not client:
         raise HTTPException(status_code=401, detail="클라이언트를 찾을 수 없습니다.")
     return client
+
+
+def require_operator(x_admin_secret: str | None = Header(None)) -> None:
+    """운영자 전용 엔드포인트 보호. X-Admin-Secret 헤더가 없거나 틀리면 401."""
+    if not settings.ADMIN_SECRET:
+        raise HTTPException(status_code=503, detail="ADMIN_SECRET이 설정되지 않았습니다.")
+    if x_admin_secret != settings.ADMIN_SECRET:
+        raise HTTPException(status_code=401, detail="운영자 인증이 필요합니다. X-Admin-Secret 헤더를 확인하세요.")

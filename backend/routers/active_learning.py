@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from auth import require_operator
 from database import get_db
 from models import Content
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["active-learning"])
+router = APIRouter(prefix="/api", tags=["active-learning"], dependencies=[Depends(require_operator)])
 
 # 운영자 결정 → 위험 등급 / 재학습 점수 매핑
 ACTION_TO_LEVEL = {

@@ -1,6 +1,23 @@
 from tests.conftest import MOCK_FINAL_RESULT, MOCK_PREDICTIONS
 
 
+class TestAnalyzeAuth:
+    def test_missing_api_key_returns_401(self, unauth_client, mock_predict):
+        response = unauth_client.post(
+            "/api/analyze",
+            json={"content_id": "AUTH001", "text": "테스트"},
+        )
+        assert response.status_code == 401
+
+    def test_invalid_api_key_returns_401(self, unauth_client, mock_predict):
+        response = unauth_client.post(
+            "/api/analyze",
+            json={"content_id": "AUTH001", "text": "테스트"},
+            headers={"Authorization": "Bearer invalid-key"},
+        )
+        assert response.status_code == 401
+
+
 class TestAnalyzeEndpoint:
     def test_returns_201_on_success(self, client, mock_predict):
         response = client.post(

@@ -3,10 +3,10 @@ import secrets
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from config import settings
+from auth import require_operator
 from database import get_db
 from models import ApiKey, Client
 from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse
@@ -16,13 +16,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _require_admin(x_admin_secret: str | None = Header(None)) -> None:
-    if not settings.ADMIN_SECRET:
-        raise HTTPException(status_code=503, detail="ADMIN_SECRET이 설정되지 않았습니다.")
-    if x_admin_secret != settings.ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="어드민 시크릿이 올바르지 않습니다.")
-
-
 def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -30,7 +23,7 @@ def _hash(raw: str) -> str:
 # ── 클라이언트 ──────────────────────────────────────────────────────────────
 
 @router.post("/clients", response_model=ClientResponse, status_code=201,
-             dependencies=[Depends(_require_admin)])
+             dependencies=[Depends(require_operator)])
 def create_client(body: ClientCreate, db: Session = Depends(get_db)):
     if db.query(Client).filter(Client.name == body.name).first():
         raise HTTPException(status_code=400, detail=f"클라이언트 이름 '{body.name}' 이 이미 존재합니다.")
@@ -43,7 +36,7 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/clients", response_model=List[ClientResponse],
-            dependencies=[Depends(_require_admin)])
+            dependencies=[Depends(require_operator)])
 def list_clients(db: Session = Depends(get_db)):
     return db.query(Client).order_by(Client.created_at.desc()).all()
 
@@ -51,7 +44,7 @@ def list_clients(db: Session = Depends(get_db)):
 # ── API 키 ──────────────────────────────────────────────────────────────────
 
 @router.post("/clients/{client_id}/keys", response_model=ApiKeyCreated, status_code=201,
-             dependencies=[Depends(_require_admin)])
+             dependencies=[Depends(require_operator)])
 def create_key(client_id: int, body: ApiKeyCreate, db: Session = Depends(get_db)):
     if not db.query(Client).filter(Client.id == client_id).first():
         raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
@@ -80,7 +73,7 @@ def create_key(client_id: int, body: ApiKeyCreate, db: Session = Depends(get_db)
 
 
 @router.get("/clients/{client_id}/keys", response_model=List[ApiKeyResponse],
-            dependencies=[Depends(_require_admin)])
+            dependencies=[Depends(require_operator)])
 def list_keys(client_id: int, db: Session = Depends(get_db)):
     return (
         db.query(ApiKey)
@@ -91,7 +84,7 @@ def list_keys(client_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/keys/{key_id}", status_code=204,
-               dependencies=[Depends(_require_admin)])
+               dependencies=[Depends(require_operator)])
 def revoke_key(key_id: int, db: Session = Depends(get_db)):
     api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
     if not api_key:

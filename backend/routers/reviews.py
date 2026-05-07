@@ -4,13 +4,14 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_operator
 from database import get_db
 from models import Content
 from schemas import ContentResponse, ReviewRequest
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["reviews"])
+router = APIRouter(prefix="/api", tags=["reviews"], dependencies=[Depends(require_operator)])
 
 ACTION_TO_STATUS = {
     "approve": "APPROVED",

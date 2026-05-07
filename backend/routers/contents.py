@@ -4,13 +4,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
+from auth import require_operator
 from database import get_db
 from models import Content, ModelPrediction
 from schemas import ContentResponse, ModelPredictionResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["contents"])
+router = APIRouter(prefix="/api", tags=["contents"], dependencies=[Depends(require_operator)])
 
 
 @router.get("/contents", response_model=List[ContentResponse])

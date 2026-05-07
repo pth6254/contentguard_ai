@@ -6,6 +6,9 @@ _TEST_DB_PATH = Path(__file__).parent / "test_contentguard.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH}"
 os.environ.setdefault("MODEL_PRIMARY", "logistic_regression")
 os.environ.setdefault("DECISION_POLICY", "primary_only")
+os.environ.setdefault("ADMIN_SECRET", "test-secret")
+
+OPERATOR_SECRET = os.environ["ADMIN_SECRET"]
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +18,8 @@ from unittest.mock import patch
 
 from database import Base, get_db
 from main import app
+from models import Client
+from auth import get_client, require_operator
 from services.prediction_service import prediction_service
 
 _test_engine = create_engine(
@@ -80,12 +85,35 @@ def db_session():
         Base.metadata.drop_all(bind=_test_engine)
 
 
+_MOCK_CLIENT = Client(id=1, name="test-client")
+
+
+@pytest.fixture(scope="function")
+def unauth_client(db_session):
+    """get_client / require_operator를 override하지 않는 클라이언트 (인증 강제 확인용)."""
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=False) as tc:
+        yield tc
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture(scope="function")
 def client(db_session):
     def override_get_db():
         yield db_session
 
+    def override_get_client():
+        return _MOCK_CLIENT
+
+    def override_require_operator():
+        return None
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_client] = override_get_client
+    app.dependency_overrides[require_operator] = override_require_operator
     with TestClient(app) as tc:
         yield tc
     app.dependency_overrides.clear()

@@ -1,5 +1,29 @@
 import pytest
 
+from tests.conftest import OPERATOR_SECRET
+
+
+class TestReviewsAuth:
+    def test_missing_secret_returns_401(self, unauth_client):
+        response = unauth_client.post("/api/reviews/ANY", json={"action": "approve"})
+        assert response.status_code == 401
+
+    def test_wrong_secret_returns_401(self, unauth_client):
+        response = unauth_client.post(
+            "/api/reviews/ANY",
+            json={"action": "approve"},
+            headers={"x-admin-secret": "wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_correct_secret_reaches_endpoint(self, unauth_client):
+        response = unauth_client.post(
+            "/api/reviews/NONEXISTENT",
+            json={"action": "approve"},
+            headers={"x-admin-secret": OPERATOR_SECRET},
+        )
+        assert response.status_code == 404
+
 
 class TestReviewEndpoint:
     @pytest.mark.parametrize("action,expected_status", [
