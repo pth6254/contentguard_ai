@@ -3,10 +3,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from auth import get_client
+from auth import get_client_or_operator
 from database import get_db
 from limiter import limiter
 from models import Client, Content, ModelPrediction
+from typing import Optional
 from schemas import AnalyzeRequest, ContentResponse
 from services.llm_service import generate_explanation
 from services.prediction_service import prediction_service
@@ -22,7 +23,7 @@ def analyze(
     request: Request,
     body: AnalyzeRequest,
     db: Session = Depends(get_db),
-    client: Client = Depends(get_client),
+    client: Optional[Client] = Depends(get_client_or_operator),
 ):
     if db.query(Content).filter(Content.content_id == body.content_id).first():
         raise HTTPException(
@@ -41,7 +42,7 @@ def analyze(
     )
 
     record = Content(
-        client_id=client.id,
+        client_id=client.id if client else None,
         content_id=body.content_id,
         text=body.text,
         risk_score=final["risk_score"],

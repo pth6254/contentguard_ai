@@ -34,11 +34,13 @@ function parseCsv(text: string): { rows: PreviewRow[]; error: string | null } {
   const headers = parseCsvLine(lines[0]).map(h => h.trim())
   const cidIdx = headers.indexOf("content_id")
   const txtIdx = headers.indexOf("text")
-  if (cidIdx === -1 || txtIdx === -1)
-    return { rows: [], error: "'content_id'와 'text' 컬럼이 없습니다." }
-  const rows = lines.slice(1).map(line => {
+  if (txtIdx === -1)
+    return { rows: [], error: "'text' 컬럼이 없습니다." }
+  const prefix = `CSV_${Date.now()}`
+  const rows = lines.slice(1).map((line, i) => {
     const cols = parseCsvLine(line)
-    return { content_id: (cols[cidIdx] ?? "").trim(), text: (cols[txtIdx] ?? "").trim() }
+    const content_id = cidIdx !== -1 ? (cols[cidIdx] ?? "").trim() : `${prefix}_${String(i + 1).padStart(4, "0")}`
+    return { content_id, text: (cols[txtIdx] ?? "").trim() }
   })
   return { rows, error: null }
 }
@@ -86,8 +88,8 @@ export default function UploadPage() {
     <div className="space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold text-slate-100">CSV 일괄 업로드</h1>
       <p className="text-sm text-slate-400">
-        <code className="bg-slate-800 px-1 rounded text-slate-300">content_id</code>,{" "}
-        <code className="bg-slate-800 px-1 rounded text-slate-300">text</code> 컬럼을 포함한 CSV 파일을 업로드하세요.
+        <code className="bg-slate-800 px-1 rounded text-slate-300">text</code> 컬럼이 필수이며,{" "}
+        <code className="bg-slate-800 px-1 rounded text-slate-300">content_id</code>는 없으면 자동 생성됩니다.
         최대 1,000건 · UTF-8 인코딩 · LLM 설명 생략
       </p>
 

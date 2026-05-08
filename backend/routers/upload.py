@@ -7,10 +7,11 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
-from auth import get_client
+from auth import get_client_or_operator
 from database import get_db
 from limiter import limiter
 from models import Client, Content, ModelPrediction
+from typing import Optional
 from schemas import UploadResult, UploadError
 from services.prediction_service import prediction_service
 
@@ -29,22 +30,26 @@ def _cell(value) -> str:
     return "" if pd.isna(value) else str(value).strip()
 
 
+def _extract_rows(df: pd.DataFrame, prefix: str) -> list[tuple[str, str]]:
+    if "text" not in df.columns:
+        raise ValueError("'text' 컬럼이 필요합니다.")
+    if "content_id" in df.columns:
+        return [(_cell(r["content_id"]), _cell(r["text"])) for _, r in df.iterrows()]
+    return [(f"{prefix}_{i+1:04d}", _cell(r["text"])) for i, (_, r) in enumerate(df.iterrows())]
+
+
 def _parse_csv(raw: bytes) -> list[tuple[str, str]]:
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise ValueError("UTF-8 인코딩 파일만 지원합니다.")
     df = pd.read_csv(io.StringIO(text))
-    if "content_id" not in df.columns or "text" not in df.columns:
-        raise ValueError("'content_id'와 'text' 컬럼이 필요합니다.")
-    return [(_cell(r["content_id"]), _cell(r["text"])) for _, r in df.iterrows()]
+    return _extract_rows(df, f"CSV_{int(time.time())}")
 
 
 def _parse_excel(raw: bytes) -> list[tuple[str, str]]:
     df = pd.read_excel(io.BytesIO(raw))
-    if "content_id" not in df.columns or "text" not in df.columns:
-        raise ValueError("'content_id'와 'text' 컬럼이 필요합니다.")
-    return [(_cell(r["content_id"]), _cell(r["text"])) for _, r in df.iterrows()]
+    return _extract_rows(df, f"XLS_{int(time.time())}")
 
 
 def _parse_json(raw: bytes) -> list[tuple[str, str]]:
@@ -89,7 +94,7 @@ PARSERS = {
 
 def _save_rows(
     rows: list[tuple[str, str]],
-    client_id: int,
+    client_id: Optional[int],
     db: Session,
 ) -> UploadResult:
     if len(rows) > MAX_ROWS:
@@ -155,7 +160,7 @@ async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    client: Client = Depends(get_client),
+    client: Optional[Client] = Depends(get_client_or_operator),
 ):
     filename = file.filename or ""
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -172,7 +177,7 @@ async def upload_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    result = _save_rows(rows, client.id, db)
+    result = _save_rows(rows, client.id if client else None, db)
     logger.info(
         "파일 업로드: filename=%s total=%d saved=%d skipped=%d errors=%d",
         filename, result.total, result.saved, result.skipped, len(result.errors),

@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Generator
+from typing import Generator, Optional
 
 import ollama as ollama_lib
 import requests as http
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from auth import get_client
+from auth import get_client_or_operator
 from config import settings
 from database import get_db
 from limiter import limiter
@@ -66,7 +66,7 @@ def _extract_texts(markdown: str, max_items: int) -> list[str]:
     return json.loads(content[start:end])
 
 
-def _stream(url: str, max_items: int, db: Session, client_id: int) -> Generator[str, None, None]:
+def _stream(url: str, max_items: int, db: Session, client_id: Optional[int]) -> Generator[str, None, None]:
     if not settings.FIRECRAWL_API_KEY:
         yield _sse({"type": "error", "message": "FIRECRAWL_API_KEY가 설정되지 않았습니다."})
         return
@@ -161,10 +161,10 @@ def crawl(
     request: Request,
     body: CrawlRequest,
     db: Session = Depends(get_db),
-    client: Client = Depends(get_client),
+    client: Optional[Client] = Depends(get_client_or_operator),
 ):
     return StreamingResponse(
-        _stream(body.url, body.max_items, db, client.id),
+        _stream(body.url, body.max_items, db, client.id if client else None),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

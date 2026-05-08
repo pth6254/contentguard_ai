@@ -29,8 +29,9 @@ from config import settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Secret"],
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(register.router)

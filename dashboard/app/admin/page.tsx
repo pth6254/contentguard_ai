@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
-const BASE        = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? ""
 
 interface Client  { id: number; name: string; created_at: string }
@@ -14,7 +13,7 @@ interface ApiKey  { id: number; client_id: number; name: string; key_prefix: str
 interface NewKey  extends ApiKey { key: string }
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(path, {
     ...options,
     headers: { "Content-Type": "application/json", "X-Admin-Secret": ADMIN_SECRET, ...options?.headers },
   })

@@ -35,6 +35,8 @@ services:
       dockerfile: backend/Dockerfile
     container_name: contentguard-backend
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://admin:admin@db:5432/contentguard_db
     ports:
       - "8000:8000"
     depends_on:
@@ -46,9 +48,10 @@ services:
     build:
       context: .
       dockerfile: dashboard/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8000
+        NEXT_PUBLIC_ADMIN_SECRET: ${ADMIN_SECRET:-}
     container_name: contentguard-dashboard
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "3000:3000"
     depends_on:

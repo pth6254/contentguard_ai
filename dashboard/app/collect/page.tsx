@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api, type RiskLevel, type UploadResult } from "@/lib/api"
 
+const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? ""
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 type Tab = "api" | "file" | "crawl"
@@ -189,12 +190,14 @@ function parseCsvPreview(text: string): { rows: PreviewRow[]; error: string | nu
   if (lines.length < 2) return { rows: [], error: null }
   const headers = parseCsvLine(lines[0]).map(h => h.trim())
   const cidIdx = headers.indexOf("content_id"), txtIdx = headers.indexOf("text")
-  if (cidIdx === -1 || txtIdx === -1)
-    return { rows: [], error: "'content_id'와 'text' 컬럼이 없습니다." }
+  if (txtIdx === -1)
+    return { rows: [], error: "'text' 컬럼이 없습니다." }
+  const prefix = `CSV_${Date.now()}`
   return {
-    rows: lines.slice(1).map(line => {
+    rows: lines.slice(1).map((line, i) => {
       const cols = parseCsvLine(line)
-      return { content_id: (cols[cidIdx] ?? "").trim(), text: (cols[txtIdx] ?? "").trim() }
+      const content_id = cidIdx !== -1 ? (cols[cidIdx] ?? "").trim() : `${prefix}_${String(i + 1).padStart(4, "0")}`
+      return { content_id, text: (cols[txtIdx] ?? "").trim() }
     }),
     error: null,
   }
@@ -375,9 +378,9 @@ function CrawlTab({ onCrawlingChange }: { onCrawlingChange: (v: boolean) => void
     setRunningState(true); setItems([]); setDone(null); setError(null); setStatus("연결 중...")
     abortRef.current = new AbortController()
     try {
-      const res = await fetch(`${BASE}/api/crawl`, {
+      const res = await fetch("/api/crawl", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Admin-Secret": ADMIN_SECRET },
         body: JSON.stringify({ url: url.trim(), max_items: maxItems }),
         signal: abortRef.current.signal,
       })

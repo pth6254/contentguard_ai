@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [stats, setStats]         = useState({ total: 0, pending: 0, approved: 0, removed: 0, held: 0 })
   const [levelCounts, setLevelCounts] = useState<Record<RiskLevel, number>>({ LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 })
   const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshTick, setRefreshTick] = useState(0)
 
@@ -41,6 +42,8 @@ export default function DashboardPage() {
       setRecent(recentR.items)
       setStats({ total: totalR.total, pending: pendingR.total, approved: approvedR.total, removed: removedR.total, held: heldR.total })
       setLevelCounts({ LOW: lowR.total, MEDIUM: medR.total, HIGH: highR.total, CRITICAL: critR.total })
+    }).catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e))
     }).finally(() => setLoading(false))
   }, [refreshTick])
 

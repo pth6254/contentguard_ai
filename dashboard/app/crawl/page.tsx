@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { RiskLevel } from "@/lib/api"
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? ""
 
 interface CrawlItem {
   content_id: string
@@ -38,9 +38,9 @@ export default function CrawlPage() {
     abortRef.current = new AbortController()
 
     try {
-      const res = await fetch(`${BASE}/api/crawl`, {
+      const res = await fetch("/api/crawl", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Admin-Secret": ADMIN_SECRET },
         body: JSON.stringify({ url: url.trim(), max_items: maxItems }),
         signal: abortRef.current.signal,
       })
