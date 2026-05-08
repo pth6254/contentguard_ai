@@ -228,3 +228,4 @@ models/*.pkl
 node_modules/
 .next/
 .env.local
+dashboard/.env.local
