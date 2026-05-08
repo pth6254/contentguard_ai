@@ -175,7 +175,7 @@ PENDING (AI 분석 완료, 심사 대기)
 cp .env.example .env
 # .env에서 ADMIN_SECRET, FIRECRAWL_API_KEY 등 설정
 
-docker-compose up --build
+docker compose up -d --build
 ```
 
 | 서비스 | 주소 |
@@ -186,6 +186,30 @@ docker-compose up --build
 | pgAdmin | http://localhost:5051 |
 
 백엔드 시작 시 `alembic upgrade head`가 자동 실행됩니다.
+
+#### Docker 네트워크 구조
+
+컨테이너끼리는 서비스 이름으로 통신하고, 브라우저에서는 `localhost`로 접근합니다.
+
+```
+[브라우저] → localhost:3000 → [dashboard 컨테이너]
+                                      ↓ Next.js rewrites (프록시)
+                               backend:8000 → [backend 컨테이너]
+                                                    ↓
+                                             db:5432 → [db 컨테이너]
+```
+
+대시보드는 Next.js rewrites를 사용해 `/api/*` 요청을 내부적으로 백엔드로 프록시합니다.  
+브라우저가 백엔드를 직접 호출하지 않으므로 CORS 문제가 없습니다.
+
+#### NEXT_PUBLIC_ADMIN_SECRET 주의사항
+
+`NEXT_PUBLIC_ADMIN_SECRET`은 Next.js 빌드 시점에 코드에 구워집니다.  
+`.env`의 `ADMIN_SECRET` 값이 바뀌면 반드시 재빌드해야 합니다.
+
+```bash
+docker compose up -d --build dashboard
+```
 
 ---
 
@@ -301,8 +325,9 @@ python scripts/demo_crawl.py \
 | GET | `/admin/clients/{id}/keys` | 운영자 | API 키 목록 |
 | DELETE | `/admin/keys/{key_id}` | 운영자 | API 키 비활성화 |
 
-> **API 키 인증**: `Authorization: Bearer <key>` 헤더  
-> **운영자 인증**: `X-Admin-Secret: <secret>` 헤더
+> **API 키 인증**: `Authorization: Bearer <key>` 헤더 — 외부 서비스 연동용  
+> **운영자 인증**: `X-Admin-Secret: <secret>` 헤더 — 대시보드 전용  
+> 두 인증 방식 모두 허용하는 엔드포인트(`/api/analyze`, `/api/upload`, `/api/crawl`)는 어느 쪽 헤더를 보내도 동작합니다.
 
 ### GET /api/contents 쿼리 파라미터
 
@@ -340,6 +365,7 @@ GET /api/active-learning/candidates?disagreement_only=true
 | 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
 | 전체 이력 | 검색, 상태별 필터, 페이지 크기 선택, 페이지네이션, AI 설명·운영자 메모 조회, 심사 결과 재변경 |
 | CSV 업로드 | CSV 드래그&드롭 업로드, 미리보기, 일괄 분석, 저장/중복/오류 결과 표시 |
+| 데이터 수집 | API 연동 코드 예시, 파일 업로드, 웹 크롤링 탭으로 구성된 통합 데이터 수집 페이지 |
 
 ## 헬스체크
 
@@ -379,6 +405,21 @@ python -m pytest tests/ -v
 ```
 
 170개 테스트 (통합 + 유닛). 테스트 환경에서는 Rate Limit이 자동 비활성화됩니다.
+
+## GitHub에서 다른 PC로 배포
+
+```bash
+git clone https://github.com/your-id/contentguard_ai.git
+cd contentguard_ai
+
+cp .env.example .env
+# .env 값 채우기
+
+docker compose up -d --build
+```
+
+`docker-compose.yml`과 코드만 있으면 어느 PC에서도 동일하게 실행됩니다.  
+단, `.env`는 Git에 포함되지 않으므로 각 PC에서 직접 작성해야 합니다.
 
 ## Active Learning (모델 재학습)
 
