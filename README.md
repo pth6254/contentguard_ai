@@ -20,9 +20,12 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
 - **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
 - **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
-- **CSV 일괄 업로드**: 드래그&드롭으로 CSV 파일 업로드 후 일괄 분석, 저장/중복/오류 건수 반환
-- **시연용 크롤링 파이프라인**: Firecrawl로 외부 페이지 수집 → Ollama로 텍스트 추출 → ContentGuard 자동 분석
+- **파일 일괄 업로드**: CSV / Excel / JSON / TXT 업로드 후 일괄 분석, 저장/중복/오류 건수 반환 (최대 1,000건)
+- **시연용 크롤링 파이프라인**: Firecrawl로 외부 페이지 수집 → Ollama로 텍스트 추출 → ContentGuard 자동 분석 (SSE 스트리밍)
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
+- **자가 API 키 발급**: `POST /register`로 운영자 개입 없이 즉시 API 키 발급
+- **Rate Limiting**: IP 기반 요청 수 제한으로 남용 방지
+- **DB 마이그레이션**: Alembic으로 스키마 변경 이력 관리 및 안전한 운영 DB 적용
 
 ## 아키텍처
 
@@ -30,23 +33,29 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 contentguard_ai/
 ├── backend/                  # FastAPI 백엔드
 │   ├── main.py               # 앱 진입점
-│   ├── config.py             # 환경변수 설정 (MODEL_PRIMARY, DECISION_POLICY 포함)
+│   ├── config.py             # 환경변수 설정 (ALLOWED_ORIGINS, MODEL_PRIMARY 등)
+│   ├── auth.py               # API 키 / 운영자 인증
+│   ├── limiter.py            # slowapi Rate Limiter
 │   ├── database.py           # SQLAlchemy DB 연결
-│   ├── models.py             # ORM 모델 (contents, model_predictions 테이블)
+│   ├── models.py             # ORM 모델 (clients, api_keys, contents, model_predictions)
 │   ├── schemas.py            # Pydantic 요청/응답 스키마
+│   ├── migrations/           # Alembic 마이그레이션
 │   ├── routers/
+│   │   ├── register.py             # POST /register (자가 API 키 발급)
 │   │   ├── analyze.py              # POST /api/analyze
 │   │   ├── contents.py             # GET /api/contents (페이지네이션·검색 지원)
 │   │   ├── reviews.py              # POST /api/reviews/{id}
-│   │   ├── upload.py               # POST /api/upload/csv (CSV 일괄 업로드)
-│   │   └── active_learning.py      # GET /api/active-learning/candidates
+│   │   ├── upload.py               # POST /api/upload (CSV/Excel/JSON/TXT)
+│   │   ├── crawl.py                # POST /api/crawl (SSE 스트리밍)
+│   │   ├── active_learning.py      # GET /api/active-learning/candidates
+│   │   └── admin.py                # POST /admin/clients, /admin/clients/{id}/keys
 │   ├── services/
 │   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
 │   │   ├── llm_service.py          # Ollama LLM 설명 생성
 │   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
 │   └── tests/
 │       ├── unit/                   # 단위 테스트 (risk_service, prediction_logic, schemas)
-│       └── integration/            # 통합 테스트 (analyze, contents, reviews, active_learning)
+│       └── integration/            # 통합 테스트 170개 (analyze, contents, reviews, upload, crawl, admin, register)
 ├── dashboard/                # Next.js 프론트엔드
 │   ├── app/
 │   │   ├── page.tsx                # 대시보드 (병렬 카운트 조회·차트·자동 새로고침)
@@ -76,7 +85,7 @@ contentguard_ai/
 │   └── export_active_learning.py   # Active Learning 후보 CSV 내보내기
 ├── .env                      # 환경변수 (로컬용, git 제외)
 ├── .env.example              # 환경변수 템플릿
-├── docker-compose.yml        # PostgreSQL 17 + pgAdmin 컨테이너
+├── docker-compose.yml        # 전체 스택 (백엔드 + 대시보드 + PostgreSQL + pgAdmin)
 └── requirements.txt          # Python 패키지 목록
 ```
 
@@ -156,22 +165,43 @@ PENDING (AI 분석 완료, 심사 대기)
 
 ### 사전 요구사항
 
-- Python 3.10+
-- Node.js 18+
 - Docker Desktop
-- Ollama (Windows에서 실행, qwen3.5:9b 모델 필요)
-- WSL2 (백엔드 실행 환경)
+- Ollama (Windows에서 실행, `qwen3.5:9b` 모델 필요)
+- WSL2 (로컬 개발 환경)
 
-### 1. 환경변수 설정
+### Docker로 실행 (권장)
 
 ```bash
 cp .env.example .env
-# .env 파일을 열어 DATABASE_URL, OLLAMA_BASE_URL 등 설정
+# .env에서 ADMIN_SECRET, FIRECRAWL_API_KEY 등 설정
+
+docker-compose up --build
+```
+
+| 서비스 | 주소 |
+|---|---|
+| API | http://localhost:8000 |
+| API 문서 | http://localhost:8000/docs |
+| 대시보드 | http://localhost:3000 |
+| pgAdmin | http://localhost:5051 |
+
+백엔드 시작 시 `alembic upgrade head`가 자동 실행됩니다.
+
+---
+
+### 로컬 개발 (WSL)
+
+#### 1. 환경변수 설정
+
+```bash
+cp .env.example .env
 ```
 
 `.env` 예시:
 ```
 DATABASE_URL=postgresql+psycopg2://admin:admin@localhost:5434/contentguard_db
+ADMIN_SECRET=your-secret-here
+ALLOWED_ORIGINS=http://localhost:3000
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
 MODEL_PRIMARY=logistic_regression
@@ -179,9 +209,9 @@ DECISION_POLICY=primary_only
 FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
 ```
 
-> WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 OLLAMA_BASE_URL에 사용하세요.
+> WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 `OLLAMA_BASE_URL`에 사용하세요.
 
-### 2. 패키지 설치
+#### 2. 패키지 설치
 
 ```bash
 # 백엔드 (WSL)
@@ -190,53 +220,34 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 프론트엔드
-cd dashboard
-npm install
+cd dashboard && npm install
 ```
 
-### 3. PostgreSQL 실행
+#### 3. PostgreSQL 실행
 
 ```bash
-# PowerShell (Windows)
-docker compose up -d
+docker-compose up -d db
 ```
 
-pgAdmin: http://localhost:5051 (admin@admin.com / admin)
-
-### 4. ML 모델 학습
+#### 4. ML 모델 학습
 
 ```bash
-# WSL
 python scripts/train.py
 ```
 
-Ridge / Linear SVM / Logistic Regression 3개 모델을 동시에 학습하고 저장합니다.
-
-### 5. 백엔드 실행
+#### 5. DB 마이그레이션 및 백엔드 실행
 
 ```bash
-# WSL
 cd backend
+alembic upgrade head
 uvicorn main:app --reload --port 8000
 ```
 
-API 문서: http://localhost:8000/docs
-
-### 6. Ollama 실행
+#### 6. 대시보드 실행
 
 ```bash
-# PowerShell (Windows)
-ollama serve
+cd dashboard && npm run dev
 ```
-
-### 7. 대시보드 실행
-
-```bash
-# dashboard 디렉토리
-npm run dev
-```
-
-대시보드: http://localhost:3000
 
 ### 8. 테스트 데이터 주입 (선택)
 
@@ -272,16 +283,26 @@ python scripts/demo_crawl.py \
 
 ## API 엔드포인트
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/health` | 서버 상태 확인 |
-| POST | `/api/analyze` | 콘텐츠 위험도 분석 (전체 모델 실행) |
-| GET | `/api/contents` | 콘텐츠 목록 조회 |
-| GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
-| GET | `/api/contents/{id}/predictions` | 콘텐츠별 모델 예측 결과 조회 |
-| POST | `/api/reviews/{id}` | 운영자 심사 결과 제출 (재변경 포함) |
-| POST | `/api/upload/csv` | CSV 파일 일괄 업로드 및 분석 |
-| GET | `/api/active-learning/candidates` | 재학습 후보 데이터 조회 |
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/health` | 없음 | DB·Ollama 포함 의존성 상태 확인 |
+| POST | `/register` | 없음 | API 키 자가 발급 (IP당 5회/시간) |
+| POST | `/api/analyze` | API 키 | 콘텐츠 위험도 분석 (IP당 60회/시간) |
+| POST | `/api/upload` | API 키 | 파일 일괄 업로드·분석 CSV/Excel/JSON/TXT (IP당 20회/시간) |
+| POST | `/api/crawl` | API 키 | URL 크롤링·분석 SSE 스트리밍 (IP당 10회/시간) |
+| GET | `/api/contents` | 운영자 | 콘텐츠 목록 조회 (페이지네이션·검색·필터) |
+| GET | `/api/contents/{id}` | 운영자 | 콘텐츠 단건 조회 |
+| GET | `/api/contents/{id}/predictions` | 운영자 | 모델별 예측 결과 조회 |
+| POST | `/api/reviews/{id}` | 운영자 | 심사 결과 제출 (재변경 포함) |
+| GET | `/api/active-learning/candidates` | 운영자 | 재학습 후보 데이터 조회 |
+| POST | `/admin/clients` | 운영자 | 클라이언트 생성 |
+| GET | `/admin/clients` | 운영자 | 클라이언트 목록 |
+| POST | `/admin/clients/{id}/keys` | 운영자 | API 키 발급 |
+| GET | `/admin/clients/{id}/keys` | 운영자 | API 키 목록 |
+| DELETE | `/admin/keys/{key_id}` | 운영자 | API 키 비활성화 |
+
+> **API 키 인증**: `Authorization: Bearer <key>` 헤더  
+> **운영자 인증**: `X-Admin-Secret: <secret>` 헤더
 
 ### GET /api/contents 쿼리 파라미터
 
@@ -319,6 +340,45 @@ GET /api/active-learning/candidates?disagreement_only=true
 | 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
 | 전체 이력 | 검색, 상태별 필터, 페이지 크기 선택, 페이지네이션, AI 설명·운영자 메모 조회, 심사 결과 재변경 |
 | CSV 업로드 | CSV 드래그&드롭 업로드, 미리보기, 일괄 분석, 저장/중복/오류 결과 표시 |
+
+## 헬스체크
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+// 모두 정상
+{ "status": "ok", "db": "ok", "ollama": "ok" }
+
+// Ollama 장애 시
+{ "status": "degraded", "db": "ok", "ollama": "error: ..." }
+```
+
+## DB 마이그레이션
+
+```bash
+cd backend
+
+# 모델 변경 후 마이그레이션 파일 자동 생성
+alembic revision --autogenerate -m "add category to contents"
+
+# 적용
+alembic upgrade head
+
+# 롤백
+alembic downgrade -1
+```
+
+## 테스트
+
+```bash
+# WSL 환경에서 실행
+cd backend
+python -m pytest tests/ -v
+```
+
+170개 테스트 (통합 + 유닛). 테스트 환경에서는 Rate Limit이 자동 비활성화됩니다.
 
 ## Active Learning (모델 재학습)
 

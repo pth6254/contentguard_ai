@@ -1,10 +1,11 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from auth import get_client
 from database import get_db
+from limiter import limiter
 from models import Client, Content, ModelPrediction
 from schemas import AnalyzeRequest, ContentResponse
 from services.llm_service import generate_explanation
@@ -16,22 +17,24 @@ router = APIRouter(prefix="/api", tags=["analyze"])
 
 
 @router.post("/analyze", response_model=ContentResponse, status_code=201)
+@limiter.limit("60/hour")
 def analyze(
-    request: AnalyzeRequest,
+    request: Request,
+    body: AnalyzeRequest,
     db: Session = Depends(get_db),
     client: Client = Depends(get_client),
 ):
-    if db.query(Content).filter(Content.content_id == request.content_id).first():
+    if db.query(Content).filter(Content.content_id == body.content_id).first():
         raise HTTPException(
             status_code=400,
-            detail=f"content_id '{request.content_id}' 는 이미 존재합니다.",
+            detail=f"content_id '{body.content_id}' 는 이미 존재합니다.",
         )
 
-    all_predictions = prediction_service.predict_all(request.text)
+    all_predictions = prediction_service.predict_all(body.text)
     final = prediction_service.get_final_result(all_predictions)
 
     explanation = generate_explanation(
-        text=request.text,
+        text=body.text,
         risk_score=final["risk_score"],
         risk_level=final["risk_level"],
         recommended_action=final["recommended_action"],
@@ -39,8 +42,8 @@ def analyze(
 
     record = Content(
         client_id=client.id,
-        content_id=request.content_id,
-        text=request.text,
+        content_id=body.content_id,
+        text=body.text,
         risk_score=final["risk_score"],
         risk_level=final["risk_level"],
         recommended_action=final["recommended_action"],
@@ -51,7 +54,7 @@ def analyze(
 
     for pred in all_predictions:
         db.add(ModelPrediction(
-            content_id=request.content_id,
+            content_id=body.content_id,
             model_name=pred["model_name"],
             model_version=pred["model_version"],
             model_type=pred["model_type"],
@@ -69,7 +72,7 @@ def analyze(
 
     logger.info(
         "Saved content_id=%s with %d model prediction(s)",
-        request.content_id,
+        body.content_id,
         len(all_predictions),
     )
     return record

@@ -4,11 +4,12 @@ import logging
 import time
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
 from auth import get_client
 from database import get_db
+from limiter import limiter
 from models import Client, Content, ModelPrediction
 from schemas import UploadResult, UploadError
 from services.prediction_service import prediction_service
@@ -23,6 +24,11 @@ SUPPORTED = {".csv", ".xlsx", ".xls", ".json", ".txt"}
 
 # ── 형식별 파서 ────────────────────────────────────────────────────────────
 
+def _cell(value) -> str:
+    """pandas NaN을 빈 문자열로 변환."""
+    return "" if pd.isna(value) else str(value).strip()
+
+
 def _parse_csv(raw: bytes) -> list[tuple[str, str]]:
     try:
         text = raw.decode("utf-8-sig")
@@ -31,14 +37,14 @@ def _parse_csv(raw: bytes) -> list[tuple[str, str]]:
     df = pd.read_csv(io.StringIO(text))
     if "content_id" not in df.columns or "text" not in df.columns:
         raise ValueError("'content_id'와 'text' 컬럼이 필요합니다.")
-    return [(str(r["content_id"]).strip(), str(r["text"]).strip()) for _, r in df.iterrows()]
+    return [(_cell(r["content_id"]), _cell(r["text"])) for _, r in df.iterrows()]
 
 
 def _parse_excel(raw: bytes) -> list[tuple[str, str]]:
     df = pd.read_excel(io.BytesIO(raw))
     if "content_id" not in df.columns or "text" not in df.columns:
         raise ValueError("'content_id'와 'text' 컬럼이 필요합니다.")
-    return [(str(r["content_id"]).strip(), str(r["text"]).strip()) for _, r in df.iterrows()]
+    return [(_cell(r["content_id"]), _cell(r["text"])) for _, r in df.iterrows()]
 
 
 def _parse_json(raw: bytes) -> list[tuple[str, str]]:
@@ -144,7 +150,9 @@ def _save_rows(
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=UploadResult)
+@limiter.limit("20/hour")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     client: Client = Depends(get_client),

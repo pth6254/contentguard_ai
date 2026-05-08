@@ -19,6 +19,12 @@ class Settings:
     # Shadow Mode 설정 — 등록된 모델 이름 중 하나를 지정 (기본: logistic_regression)
     MODEL_PRIMARY: str = os.getenv("MODEL_PRIMARY", "logistic_regression")
 
+    ALLOWED_ORIGINS: list[str] = [
+        o.strip()
+        for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if o.strip()
+    ]
+
     FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
     ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
 

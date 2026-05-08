@@ -80,6 +80,17 @@ class UploadResult(BaseModel):
     errors: list[UploadError]
 
 
+class RegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, example="홍길동")
+
+
+class RegisterResponse(BaseModel):
+    client_id: int
+    client_name: str
+    api_key: str  # 발급 직후 한 번만 반환
+    key_prefix: str
+
+
 class ModelPredictionResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
 

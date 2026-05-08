@@ -3,7 +3,7 @@ services:
     image: postgres:17
     container_name: contentguard-postgres
     environment:
-      POSTGRES_USER: admin  
+      POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
       POSTGRES_DB: contentguard_db
     ports:
@@ -11,6 +11,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d contentguard_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   pgadmin:
     image: dpage/pgadmin4
@@ -22,6 +27,32 @@ services:
       - "5051:80"
     depends_on:
       - db
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: contentguard-backend
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: contentguard-dashboard
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:

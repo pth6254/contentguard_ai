@@ -5,13 +5,14 @@ from typing import Generator
 
 import ollama as ollama_lib
 import requests as http
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_client
 from config import settings
 from database import get_db
+from limiter import limiter
 from models import Client, Content, ModelPrediction
 from schemas import CrawlRequest
 from services.prediction_service import prediction_service
@@ -155,13 +156,15 @@ def _stream(url: str, max_items: int, db: Session, client_id: int) -> Generator[
 
 
 @router.post("/crawl")
+@limiter.limit("10/hour")
 def crawl(
-    request: CrawlRequest,
+    request: Request,
+    body: CrawlRequest,
     db: Session = Depends(get_db),
     client: Client = Depends(get_client),
 ):
     return StreamingResponse(
-        _stream(request.url, request.max_items, db, client.id),
+        _stream(body.url, body.max_items, db, client.id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
