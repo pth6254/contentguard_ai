@@ -52,12 +52,12 @@ class TestCrawlSuccess:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {
             "success": True,
-            "data": {"markdown": "## 게시글\n사기 같은 제품입니다.\n환불 요청합니다."},
+            "data": {"markdown": "## 게시글\n사기 같은 제품입니다.\n환불 요청합니다.", "html": ""},
         }
 
         with (
             patch("routers.crawl.http.post", return_value=mock_resp),
-            patch("routers.crawl.extract_texts", return_value=["사기 같은 제품입니다.", "환불 요청합니다."]),
+            patch("routers.crawl.extract_texts", return_value=(["사기 같은 제품입니다.", "환불 요청합니다."], "trafilatura")),
             patch("routers.crawl.settings") as mock_settings,
         ):
             mock_settings.FIRECRAWL_API_KEY = "fc-test"

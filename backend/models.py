@@ -9,9 +9,22 @@ from database import Base
 class Client(Base):
     __tablename__ = "clients"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    name       = Column(String, nullable=False, unique=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id            = Column(Integer, primary_key=True, index=True)
+    name          = Column(String, nullable=False, unique=True)
+    email         = Column(String, nullable=True, unique=True, index=True)
+    password_hash = Column(String, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Operator(Base):
+    __tablename__ = "operators"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    email         = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    name          = Column(String, nullable=False)
+    is_active     = Column(Boolean, default=True, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class ApiKey(Base):

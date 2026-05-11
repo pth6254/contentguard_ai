@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { Sidebar } from "@/components/sidebar"
+import { AuthGuard } from "@/components/auth-guard"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -14,10 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko">
       <body className={inter.className}>
-        <Sidebar />
-        <main className="ml-56 min-h-screen p-8">
-          {children}
-        </main>
+        <AuthGuard>{children}</AuthGuard>
       </body>
     </html>
   )

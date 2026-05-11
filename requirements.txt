@@ -12,11 +12,16 @@ numpy==2.4.4
 pandas==2.2.3
 openpyxl==3.1.5
 ollama==0.4.4
+trafilatura>=1.12.0
+beautifulsoup4>=4.12.0
 openai>=1.54.0
 anthropic>=0.40.0
 google-generativeai>=0.8.0
 requests==2.32.3
 slowapi==0.1.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 pytest==8.3.4
 httpx==0.27.2
 

@@ -98,7 +98,7 @@ contentguard_ai/
 | 백엔드 | FastAPI, Uvicorn |
 | 데이터베이스 | PostgreSQL 17 (Docker), SQLAlchemy ORM |
 | ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
-| LLM | Ollama (로컬) / OpenAI / Anthropic / Gemini / DeepSeek — `LLM_PROVIDER`로 전환 |
+| LLM | Ollama / OpenAI / Anthropic / Gemini / DeepSeek — 텍스트 추출·설명 생성 작업별 독립 설정 |
 | 프론트엔드 | Next.js 14, TypeScript, Tailwind CSS |
 | 인프라 | Docker Compose |
 
@@ -228,23 +228,31 @@ cp .env.example .env
 DATABASE_URL=postgresql+psycopg2://admin:admin@localhost:5434/contentguard_db
 ADMIN_SECRET=your-secret-here
 ALLOWED_ORIGINS=http://localhost:3000
-LLM_PROVIDER=ollama
+
+LLM_PROVIDER_EXTRACT=ollama
+LLM_MODEL_EXTRACT=qwen2.5:7b
+
+LLM_PROVIDER_EXPLAIN=ollama
+LLM_MODEL_EXPLAIN=qwen2.5:3b
+
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
+
 MODEL_PRIMARY=logistic_regression
 DECISION_POLICY=primary_only
 FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
 ```
 
-클라우드 LLM으로 전환할 때는 `LLM_PROVIDER`와 해당 API 키만 추가하면 됩니다:
+추출·설명 각각 다른 프로바이더를 쓸 수도 있습니다:
 ```
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
+# 텍스트 추출: 로컬 Ollama (비용 절감)
+LLM_PROVIDER_EXTRACT=ollama
+LLM_MODEL_EXTRACT=qwen2.5:7b
 
-# 또는
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-xxxxxxxx
-LLM_MODEL=gpt-4o-mini   # 기본값에서 변경하고 싶을 때만 설정
+# 설명 생성: Claude Haiku (품질 향상)
+LLM_PROVIDER_EXPLAIN=anthropic
+LLM_MODEL_EXPLAIN=claude-haiku-4-5-20251001
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
 ```
 
 > WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 `OLLAMA_BASE_URL`에 사용하세요.
@@ -317,7 +325,7 @@ python scripts/demo_crawl.py \
   --delay 0.5       # 요청 간격 초 (기본 0.5)
 ```
 
-**동작 흐름**: Firecrawl로 페이지 수집 → LLM(`LLM_PROVIDER` 설정값)으로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
+**동작 흐름**: Firecrawl로 페이지 수집 → LLM(`LLM_PROVIDER_EXTRACT`)으로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
 
 ## API 엔드포인트
 
@@ -435,21 +443,28 @@ docker compose up -d --build
 `docker-compose.yml`과 코드만 있으면 어느 PC에서도 동일하게 실행됩니다.  
 단, `.env`는 Git에 포함되지 않으므로 각 PC에서 직접 작성해야 합니다.
 
-## LLM 프로바이더 전환
+## LLM 프로바이더 설정
 
-`LLM_PROVIDER` 환경변수 한 줄로 LLM을 교체할 수 있습니다. 변경 후 `docker compose restart backend`만 실행하면 됩니다.
+텍스트 추출과 설명 생성을 **작업별로 독립**적으로 설정합니다. 두 값 모두 필수이며, 변경 후 `docker compose restart backend`를 실행하면 됩니다.
 
-| 프로바이더 | `LLM_PROVIDER` 값 | 필요한 환경변수 | 기본 모델 |
-|-----------|------------------|----------------|----------|
-| Ollama (로컬) | `ollama` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `qwen3.5:9b` |
+| 환경변수 | 역할 | 권장 모델 규모 |
+|---------|------|--------------|
+| `LLM_PROVIDER_EXTRACT` | 크롤링 마크다운 → 사용자 텍스트 추출 | 7B~8B (JSON 출력 신뢰도) |
+| `LLM_MODEL_EXTRACT` | 추출 작업 모델명 (미설정 시 프로바이더 기본값) | |
+| `LLM_PROVIDER_EXPLAIN` | 위험도 판단 근거 한국어 설명 생성 | 3B~4B로 충분 |
+| `LLM_MODEL_EXPLAIN` | 설명 작업 모델명 (미설정 시 프로바이더 기본값) | |
+
+### 지원 프로바이더
+
+| 프로바이더 | 값 | 필요한 환경변수 | 기본 모델 |
+|-----------|-----|----------------|----------|
+| Ollama (로컬) | `ollama` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `OLLAMA_MODEL` 값 |
 | OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` |
 | Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
 
-`LLM_MODEL` 환경변수로 기본 모델을 오버라이드할 수 있습니다 (예: `LLM_MODEL=gpt-4o`).
-
-> **클라우드 배포 시 권장**: 클라우드 환경에서는 Ollama 대신 OpenAI 또는 Anthropic을 사용하면 서버 사양 요구사항이 크게 낮아집니다.
+> **클라우드 배포 시 권장**: Ollama 대신 OpenAI 또는 Anthropic을 사용하면 서버 사양 요구사항이 크게 낮아집니다.
 
 ## Active Learning (모델 재학습)
 

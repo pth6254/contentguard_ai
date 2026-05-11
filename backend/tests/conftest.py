@@ -9,6 +9,7 @@ os.environ.setdefault("DECISION_POLICY", "primary_only")
 os.environ.setdefault("ADMIN_SECRET", "test-secret")
 os.environ.setdefault("LLM_PROVIDER_EXTRACT", "ollama")
 os.environ.setdefault("LLM_PROVIDER_EXPLAIN", "ollama")
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-for-testing-only")
 os.environ["TESTING"] = "true"
 
 OPERATOR_SECRET = os.environ["ADMIN_SECRET"]
@@ -21,8 +22,8 @@ from unittest.mock import patch
 
 from database import Base, get_db
 from main import app
-from models import Client
-from auth import get_client, get_client_or_operator, require_operator
+from models import Client, Operator
+from auth import get_client, get_client_or_operator, get_current_operator, require_operator
 from services.prediction_service import prediction_service
 
 _test_engine = create_engine(
@@ -89,11 +90,12 @@ def db_session():
 
 
 _MOCK_CLIENT = Client(id=1, name="test-client")
+_MOCK_OPERATOR = Operator(id=1, email="admin@test.com", name="관리자", password_hash="x", is_active=True)
 
 
 @pytest.fixture(scope="function")
 def unauth_client(db_session):
-    """get_client / require_operator를 override하지 않는 클라이언트 (인증 강제 확인용)."""
+    """인증 override 없이 실제 인증 로직을 검증하는 클라이언트."""
     def override_get_db():
         yield db_session
 
@@ -117,10 +119,14 @@ def client(db_session):
     def override_require_operator():
         return None
 
+    def override_get_current_operator():
+        return _MOCK_OPERATOR
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_client] = override_get_client
     app.dependency_overrides[get_client_or_operator] = override_get_client_or_operator
     app.dependency_overrides[require_operator] = override_require_operator
+    app.dependency_overrides[get_current_operator] = override_get_current_operator
     with TestClient(app) as tc:
         yield tc
     app.dependency_overrides.clear()

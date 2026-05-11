@@ -5,17 +5,21 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
-const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? ""
+import { getToken } from "@/lib/auth"
 
 interface Client  { id: number; name: string; created_at: string }
 interface ApiKey  { id: number; client_id: number; name: string; key_prefix: string; is_active: boolean; created_at: string; last_used_at: string | null }
 interface NewKey  extends ApiKey { key: string }
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getToken()
   const res = await fetch(path, {
     ...options,
-    headers: { "Content-Type": "application/json", "X-Admin-Secret": ADMIN_SECRET, ...options?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

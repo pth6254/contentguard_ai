@@ -8,6 +8,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from limiter import limiter
 from routers import active_learning, admin, analyze, contents, crawl, register, reviews, upload
+from routers import auth as auth_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +18,7 @@ logging.basicConfig(
 app = FastAPI(
     title="ContentGuard AI",
     description="AI 기반 콘텐츠 리스크 분석 API",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.state.limiter = limiter
@@ -34,6 +35,7 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(register.router)
 app.include_router(analyze.router)
 app.include_router(contents.router)
@@ -42,6 +44,31 @@ app.include_router(active_learning.router)
 app.include_router(upload.router)
 app.include_router(crawl.router)
 app.include_router(admin.router)
+
+
+@app.on_event("startup")
+def seed_initial_operator() -> None:
+    """OPERATOR_EMAIL/OPERATOR_PASSWORD가 설정되어 있고 operators 테이블이 비어 있으면 초기 운영자를 생성한다."""
+    if not settings.OPERATOR_EMAIL or not settings.OPERATOR_PASSWORD:
+        return
+    from auth import hash_password
+    from database import SessionLocal
+    from models import Operator
+    db = SessionLocal()
+    try:
+        if db.query(Operator).count() == 0:
+            op = Operator(
+                email=settings.OPERATOR_EMAIL,
+                password_hash=hash_password(settings.OPERATOR_PASSWORD),
+                name="관리자",
+            )
+            db.add(op)
+            db.commit()
+            logging.getLogger(__name__).info(
+                "초기 운영자 생성: email=%s", settings.OPERATOR_EMAIL
+            )
+    finally:
+        db.close()
 
 
 @app.get("/health")
@@ -53,7 +80,6 @@ def health_check():
 
     checks = {}
 
-    # DB
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -61,7 +87,6 @@ def health_check():
     except Exception as e:
         checks["db"] = f"error: {e}"
 
-    # Ollama
     try:
         client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL)
         client.list()

@@ -44,6 +44,15 @@ class Settings:
     FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
     ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
 
+    # JWT
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24시간
+
+    # 초기 운영자 시드 (operators 테이블이 비어 있으면 자동 생성)
+    OPERATOR_EMAIL: str = os.getenv("OPERATOR_EMAIL", "")
+    OPERATOR_PASSWORD: str = os.getenv("OPERATOR_PASSWORD", "")
+
     # Decision Policy — 복수 모델 결과를 최종 판단으로 합산하는 방식
     #   primary_only  : primary 모델 결과만 사용 (기본)
     #   conservative  : 전체 모델 중 가장 높은 위험 점수 채택

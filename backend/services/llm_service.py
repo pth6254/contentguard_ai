@@ -178,8 +178,61 @@ def generate_explanation(
         return FALLBACK_TEMPLATES.get(risk_level, "분석 결과를 확인하세요.")
 
 
-def extract_texts(markdown: str, max_items: int) -> list[str]:
-    """마크다운에서 사용자 작성 텍스트를 LLM으로 추출한다."""
+_MIN_TEXT_LEN = 10   # 날짜·작성자명 등 제거
+_MAX_TEXT_LEN = 600  # 기사 본문 등 제거
+
+_COMMENT_PATTERNS = frozenset({
+    "comment", "review", "reply", "feedback", "testimonial",
+    "opinion", "rating", "discussion", "response", "ugc",
+})
+
+
+def _extract_with_beautifulsoup(html: str, max_items: int) -> list[str]:
+    """CSS 클래스/ID에서 댓글·리뷰 패턴을 탐지해 사용자 작성 텍스트를 추출한다."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+        tag.decompose()
+
+    def _matches(tag) -> bool:
+        combined = (" ".join(tag.get("class", [])) + " " + tag.get("id", "")).lower()
+        return any(p in combined for p in _COMMENT_PATTERNS)
+
+    results = []
+    for element in soup.find_all(_matches):
+        # 매칭된 자식 요소가 있으면 부모는 건너뜀 (가장 작은 단위만 추출)
+        if any(_matches(child) for child in element.find_all(True)):
+            continue
+        text = element.get_text(separator=" ", strip=True)
+        if _MIN_TEXT_LEN <= len(text) <= _MAX_TEXT_LEN:
+            results.append(text)
+
+    seen: set[str] = set()
+    unique = [t for t in results if not (t in seen or seen.add(t))]  # type: ignore[func-returns-value]
+    return unique[:max_items]
+
+
+def _extract_with_trafilatura(html: str, max_items: int) -> list[str]:
+    """Trafilatura로 HTML에서 사용자 작성 텍스트를 빠르게 추출한다."""
+    import trafilatura
+    text = trafilatura.extract(html, include_comments=True, include_tables=False)
+    if not text:
+        return []
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    items = [ln for ln in lines if _MIN_TEXT_LEN <= len(ln) <= _MAX_TEXT_LEN]
+    return items[:max_items]
+
+
+def _is_quality_sufficient(items: list[str], max_items: int) -> bool:
+    """추출 결과가 LLM 폴백 없이 충분한지 판단한다."""
+    if len(items) < max(2, max_items // 3):
+        return False
+    avg_len = sum(len(t) for t in items) / len(items)
+    return 20 <= avg_len <= 300  # 너무 짧으면 메타데이터, 너무 길면 기사 본문
+
+
+def _extract_with_llm(markdown: str, max_items: int) -> list[str]:
+    """LLM으로 마크다운에서 사용자 작성 텍스트를 추출한다."""
     prompt = f"""다음은 웹페이지를 마크다운으로 변환한 내용입니다.
 사용자가 직접 작성한 댓글, 리뷰, 게시글 본문만 추출하세요.
 메뉴, 광고, 버튼, 날짜, 작성자명 등 부가 정보는 제외하세요.
@@ -193,7 +246,7 @@ def extract_texts(markdown: str, max_items: int) -> list[str]:
 
     client = _get_client("extract")
     logger.info(
-        "텍스트 추출 시작 — provider=%s model=%s",
+        "텍스트 추출 (LLM) — provider=%s model=%s",
         settings.LLM_PROVIDER_EXTRACT, client.model or "(default)",
     )
     content = client.chat(_EXTRACT_SYSTEM, prompt)
@@ -202,3 +255,27 @@ def extract_texts(markdown: str, max_items: int) -> list[str]:
     if start == -1 or end == 0:
         raise ValueError("JSON 배열을 찾을 수 없습니다.")
     return json.loads(content[start:end])
+
+
+def extract_texts(html: str, markdown: str, max_items: int) -> tuple[list[str], str]:
+    """
+    3단계 하이브리드 추출.
+    1차 BeautifulSoup (comment/review CSS 패턴) → 2차 Trafilatura → 3차 LLM 폴백.
+    반환: (texts, method)
+    """
+    # 1차: BeautifulSoup — 댓글·리뷰 클래스 직접 탐지
+    items = _extract_with_beautifulsoup(html, max_items)
+    if items:
+        logger.info("텍스트 추출 완료 — method=beautifulsoup count=%d", len(items))
+        return items, "beautifulsoup"
+
+    # 2차: Trafilatura — 범용 본문 추출
+    items = _extract_with_trafilatura(html, max_items)
+    if _is_quality_sufficient(items, max_items):
+        logger.info("텍스트 추출 완료 — method=trafilatura count=%d", len(items))
+        return items, "trafilatura"
+
+    # 3차: LLM 폴백
+    logger.info("Trafilatura 품질 부족 (count=%d) → LLM 폴백", len(items))
+    items = _extract_with_llm(markdown, max_items)
+    return items, "llm"

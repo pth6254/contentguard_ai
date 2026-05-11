@@ -91,6 +91,37 @@ class RegisterResponse(BaseModel):
     key_prefix: str
 
 
+# ── 인증 스키마 ────────────────────────────────────────────────────────────
+
+class ClientSignupRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, example="홍길동")
+    email: str = Field(..., example="user@example.com")
+    password: str = Field(..., min_length=8, example="password123")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., example="user@example.com")
+    password: str = Field(..., example="password123")
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int  # 초 단위
+
+
+class ClientMeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: Optional[str] = None
+    created_at: datetime
+
+
+class KeyCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, example="production-key")
+
+
 class ModelPredictionResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
 

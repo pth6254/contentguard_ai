@@ -1,14 +1,14 @@
 import hashlib
-import secrets
 import logging
+import secrets
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import require_operator
+from auth import get_current_operator
 from database import get_db
-from models import ApiKey, Client
+from models import ApiKey, Client, Operator
 from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,10 @@ def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-# ── 클라이언트 ──────────────────────────────────────────────────────────────
+# ── 클라이언트 관리 ────────────────────────────────────────────────────────
 
 @router.post("/clients", response_model=ClientResponse, status_code=201,
-             dependencies=[Depends(require_operator)])
+             dependencies=[Depends(get_current_operator)])
 def create_client(body: ClientCreate, db: Session = Depends(get_db)):
     if db.query(Client).filter(Client.name == body.name).first():
         raise HTTPException(status_code=400, detail=f"클라이언트 이름 '{body.name}' 이 이미 존재합니다.")
@@ -36,15 +36,15 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/clients", response_model=List[ClientResponse],
-            dependencies=[Depends(require_operator)])
+            dependencies=[Depends(get_current_operator)])
 def list_clients(db: Session = Depends(get_db)):
     return db.query(Client).order_by(Client.created_at.desc()).all()
 
 
-# ── API 키 ──────────────────────────────────────────────────────────────────
+# ── API 키 관리 (운영자가 특정 클라이언트 키 관리) ─────────────────────────
 
 @router.post("/clients/{client_id}/keys", response_model=ApiKeyCreated, status_code=201,
-             dependencies=[Depends(require_operator)])
+             dependencies=[Depends(get_current_operator)])
 def create_key(client_id: int, body: ApiKeyCreate, db: Session = Depends(get_db)):
     if not db.query(Client).filter(Client.id == client_id).first():
         raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
@@ -73,7 +73,7 @@ def create_key(client_id: int, body: ApiKeyCreate, db: Session = Depends(get_db)
 
 
 @router.get("/clients/{client_id}/keys", response_model=List[ApiKeyResponse],
-            dependencies=[Depends(require_operator)])
+            dependencies=[Depends(get_current_operator)])
 def list_keys(client_id: int, db: Session = Depends(get_db)):
     return (
         db.query(ApiKey)
@@ -84,7 +84,7 @@ def list_keys(client_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/keys/{key_id}", status_code=204,
-               dependencies=[Depends(require_operator)])
+               dependencies=[Depends(get_current_operator)])
 def revoke_key(key_id: int, db: Session = Depends(get_db)):
     api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
     if not api_key:
@@ -92,3 +92,16 @@ def revoke_key(key_id: int, db: Session = Depends(get_db)):
     api_key.is_active = False
     db.commit()
     logger.info("API 키 비활성화: id=%d", key_id)
+
+
+# ── 운영자 계정 목록 ───────────────────────────────────────────────────────
+
+@router.get("/operators", response_model=List[dict],
+            dependencies=[Depends(get_current_operator)])
+def list_operators(db: Session = Depends(get_db)):
+    ops = db.query(Operator).order_by(Operator.created_at.desc()).all()
+    return [
+        {"id": op.id, "email": op.email, "name": op.name,
+         "is_active": op.is_active, "created_at": op.created_at}
+        for op in ops
+    ]

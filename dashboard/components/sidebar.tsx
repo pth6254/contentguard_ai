@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings } from "lucide-react"
+import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 
@@ -53,13 +53,23 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="px-5 py-4 border-t border-slate-700">
-        <div className="flex items-center gap-2 text-xs">
-          <span className={cn("h-2 w-2 rounded-full", connected === true ? "bg-emerald-400" : connected === false ? "bg-red-400" : "bg-slate-500")} />
+      <div className="px-3 py-4 border-t border-slate-700 space-y-3">
+        {/* API 연결 상태 */}
+        <div className="flex items-center gap-2 px-2 text-xs">
+          <span className={cn("h-2 w-2 rounded-full shrink-0", connected === true ? "bg-emerald-400" : connected === false ? "bg-red-400" : "bg-slate-500")} />
           <span className="text-slate-400">
             {connected === true ? "API 연결됨" : connected === false ? "API 연결 안됨" : "확인 중..."}
           </span>
         </div>
+
+        {/* 로그아웃 */}
+        <button
+          onClick={() => api.logout()}
+          className="flex items-center gap-3 w-full rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-red-400 transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          로그아웃
+        </button>
       </div>
     </aside>
   )
