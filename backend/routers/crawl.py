@@ -3,7 +3,6 @@ import logging
 import time
 from typing import Generator, Optional
 
-import ollama as ollama_lib
 import requests as http
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -16,7 +15,7 @@ from limiter import limiter
 from models import Client
 from schemas import CrawlRequest
 from services.content_service import save_analysis
-from services.llm_service import generate_explanation
+from services.llm_service import extract_texts, generate_explanation
 from services.prediction_service import prediction_service
 
 logger = logging.getLogger(__name__)
@@ -42,30 +41,6 @@ def _scrape(url: str) -> str:
     return data["data"]["markdown"]
 
 
-def _extract_texts(markdown: str, max_items: int) -> list[str]:
-    client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL)
-    prompt = f"""다음은 웹페이지를 마크다운으로 변환한 내용입니다.
-사용자가 직접 작성한 댓글, 리뷰, 게시글 본문만 추출하세요.
-메뉴, 광고, 버튼, 날짜, 작성자명 등 부가 정보는 제외하세요.
-최대 {max_items}개를 JSON 문자열 배열로만 반환하세요. 설명 없이 배열만 출력하세요.
-
-출력 형식:
-["텍스트1", "텍스트2", "텍스트3"]
-
-마크다운:
-{markdown[:6000]}"""
-
-    response = client.chat(
-        model=settings.OLLAMA_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        options={"temperature": 0.1},
-    )
-    content = response["message"]["content"].strip()
-    start = content.find("[")
-    end   = content.rfind("]") + 1
-    if start == -1 or end == 0:
-        raise ValueError("JSON 배열을 찾을 수 없습니다.")
-    return json.loads(content[start:end])
 
 
 def _stream(url: str, max_items: int, db: Session, client_id: Optional[int]) -> Generator[str, None, None]:
@@ -82,10 +57,10 @@ def _stream(url: str, max_items: int, db: Session, client_id: Optional[int]) -> 
         return
     yield _sse({"type": "scraped", "chars": len(markdown)})
 
-    # 2단계: Ollama 텍스트 추출
-    yield _sse({"type": "status", "message": f"텍스트 추출 중 (Ollama {settings.OLLAMA_MODEL})..."})
+    # 2단계: LLM 텍스트 추출
+    yield _sse({"type": "status", "message": f"텍스트 추출 중 ({settings.LLM_PROVIDER})..."})
     try:
-        texts = _extract_texts(markdown, max_items)
+        texts = extract_texts(markdown, max_items)
     except Exception as e:
         yield _sse({"type": "error", "message": f"텍스트 추출 실패: {e}"})
         return

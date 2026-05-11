@@ -55,19 +55,13 @@ class TestCrawlSuccess:
             "data": {"markdown": "## 게시글\n사기 같은 제품입니다.\n환불 요청합니다."},
         }
 
-        mock_ollama = MagicMock()
-        mock_ollama.chat.return_value = {
-            "message": {"content": '["사기 같은 제품입니다.", "환불 요청합니다."]'}
-        }
-
         with (
             patch("routers.crawl.http.post", return_value=mock_resp),
-            patch("routers.crawl.ollama_lib.Client", return_value=mock_ollama),
+            patch("routers.crawl.extract_texts", return_value=["사기 같은 제품입니다.", "환불 요청합니다."]),
             patch("routers.crawl.settings") as mock_settings,
         ):
             mock_settings.FIRECRAWL_API_KEY = "fc-test"
-            mock_settings.OLLAMA_BASE_URL = "http://localhost:11434"
-            mock_settings.OLLAMA_MODEL = "test-model"
+            mock_settings.LLM_PROVIDER = "ollama"
             yield
 
     def test_returns_200(self, client, mock_crawl_deps):

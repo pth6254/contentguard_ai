@@ -14,7 +14,8 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
 - **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
 - **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
-- **LLM 설명 생성**: Ollama(qwen3.5:9b)로 위험 판단 근거를 한국어로 설명. `/api/analyze`는 즉시 생성, `/api/upload`는 HIGH/CRITICAL 즉시·MEDIUM/LOW 백그라운드 생성, `/api/crawl`은 항목마다 스트리밍 중 생성
+- **LLM 설명 생성**: 위험 판단 근거를 한국어로 설명. `/api/analyze`는 즉시 생성, `/api/upload`는 HIGH/CRITICAL 즉시·MEDIUM/LOW 백그라운드 생성, `/api/crawl`은 항목마다 스트리밍 중 생성
+- **멀티 LLM 프로바이더**: `LLM_PROVIDER` 환경변수 한 줄로 Ollama(로컬) / OpenAI / Anthropic / Gemini / DeepSeek 전환 가능
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
 - **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
@@ -52,7 +53,7 @@ contentguard_ai/
 │   ├── services/
 │   │   ├── content_service.py      # save_analysis() — 예측 결과 DB 저장 공통 로직
 │   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
-│   │   ├── llm_service.py          # Ollama LLM 설명 생성
+│   │   ├── llm_service.py          # 멀티 프로바이더 LLM (Ollama/OpenAI/Anthropic/Gemini/DeepSeek)
 │   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
 │   └── tests/
 │       ├── unit/                   # 단위 테스트 (content_service, risk_service, prediction_logic, schemas)
@@ -97,7 +98,7 @@ contentguard_ai/
 | 백엔드 | FastAPI, Uvicorn |
 | 데이터베이스 | PostgreSQL 17 (Docker), SQLAlchemy ORM |
 | ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
-| LLM | Ollama (qwen3.5:9b), 로컬 실행 |
+| LLM | Ollama (로컬) / OpenAI / Anthropic / Gemini / DeepSeek — `LLM_PROVIDER`로 전환 |
 | 프론트엔드 | Next.js 14, TypeScript, Tailwind CSS |
 | 인프라 | Docker Compose |
 
@@ -222,16 +223,28 @@ docker compose up -d --build dashboard
 cp .env.example .env
 ```
 
-`.env` 예시:
+`.env` 예시 (로컬 Ollama):
 ```
 DATABASE_URL=postgresql+psycopg2://admin:admin@localhost:5434/contentguard_db
 ADMIN_SECRET=your-secret-here
 ALLOWED_ORIGINS=http://localhost:3000
+LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
 MODEL_PRIMARY=logistic_regression
 DECISION_POLICY=primary_only
 FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
+```
+
+클라우드 LLM으로 전환할 때는 `LLM_PROVIDER`와 해당 API 키만 추가하면 됩니다:
+```
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
+
+# 또는
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-xxxxxxxx
+LLM_MODEL=gpt-4o-mini   # 기본값에서 변경하고 싶을 때만 설정
 ```
 
 > WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 `OLLAMA_BASE_URL`에 사용하세요.
@@ -304,7 +317,7 @@ python scripts/demo_crawl.py \
   --delay 0.5       # 요청 간격 초 (기본 0.5)
 ```
 
-**동작 흐름**: Firecrawl로 페이지 수집 → Ollama(`qwen3.5:9b`)로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
+**동작 흐름**: Firecrawl로 페이지 수집 → LLM(`LLM_PROVIDER` 설정값)으로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
 
 ## API 엔드포인트
 
@@ -421,6 +434,22 @@ docker compose up -d --build
 
 `docker-compose.yml`과 코드만 있으면 어느 PC에서도 동일하게 실행됩니다.  
 단, `.env`는 Git에 포함되지 않으므로 각 PC에서 직접 작성해야 합니다.
+
+## LLM 프로바이더 전환
+
+`LLM_PROVIDER` 환경변수 한 줄로 LLM을 교체할 수 있습니다. 변경 후 `docker compose restart backend`만 실행하면 됩니다.
+
+| 프로바이더 | `LLM_PROVIDER` 값 | 필요한 환경변수 | 기본 모델 |
+|-----------|------------------|----------------|----------|
+| Ollama (로컬) | `ollama` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `qwen3.5:9b` |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+
+`LLM_MODEL` 환경변수로 기본 모델을 오버라이드할 수 있습니다 (예: `LLM_MODEL=gpt-4o`).
+
+> **클라우드 배포 시 권장**: 클라우드 환경에서는 Ollama 대신 OpenAI 또는 Anthropic을 사용하면 서버 사양 요구사항이 크게 낮아집니다.
 
 ## Active Learning (모델 재학습)
 
