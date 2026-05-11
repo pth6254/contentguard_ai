@@ -7,6 +7,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH}"
 os.environ.setdefault("MODEL_PRIMARY", "logistic_regression")
 os.environ.setdefault("DECISION_POLICY", "primary_only")
 os.environ.setdefault("ADMIN_SECRET", "test-secret")
+os.environ.setdefault("LLM_PROVIDER_EXTRACT", "ollama")
+os.environ.setdefault("LLM_PROVIDER_EXPLAIN", "ollama")
 os.environ["TESTING"] = "true"
 
 OPERATOR_SECRET = os.environ["ADMIN_SECRET"]

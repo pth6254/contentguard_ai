@@ -61,7 +61,7 @@ class TestCrawlSuccess:
             patch("routers.crawl.settings") as mock_settings,
         ):
             mock_settings.FIRECRAWL_API_KEY = "fc-test"
-            mock_settings.LLM_PROVIDER = "ollama"
+            mock_settings.LLM_PROVIDER_EXTRACT = "ollama"
             yield
 
     def test_returns_200(self, client, mock_crawl_deps):

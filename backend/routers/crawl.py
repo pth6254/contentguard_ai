@@ -58,7 +58,7 @@ def _stream(url: str, max_items: int, db: Session, client_id: Optional[int]) -> 
     yield _sse({"type": "scraped", "chars": len(markdown)})
 
     # 2단계: LLM 텍스트 추출
-    yield _sse({"type": "status", "message": f"텍스트 추출 중 ({settings.LLM_PROVIDER})..."})
+    yield _sse({"type": "status", "message": f"텍스트 추출 중 ({settings.LLM_PROVIDER_EXTRACT})..."})
     try:
         texts = extract_texts(markdown, max_items)
     except Exception as e:

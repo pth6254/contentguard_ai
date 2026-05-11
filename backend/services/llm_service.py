@@ -1,6 +1,7 @@
 import json
 import logging
 from abc import ABC, abstractmethod
+from typing import Literal
 
 from config import settings
 
@@ -22,10 +23,15 @@ FALLBACK_TEMPLATES = {
 _EXPLAIN_SYSTEM = "당신은 콘텐츠 안전 운영자를 돕는 AI 어시스턴트입니다. 분석 결과를 간결하고 명확하게 한국어로 설명해주세요."
 _EXTRACT_SYSTEM = "당신은 웹 콘텐츠에서 사용자 작성 텍스트를 추출하는 도우미입니다."
 
+Task = Literal["extract", "explain"]
+
 
 # ── 공급자 추상 인터페이스 ──────────────────────────────────────────────────
 
 class _LLMClient(ABC):
+    def __init__(self, model: str = "") -> None:
+        self.model = model
+
     @abstractmethod
     def chat(self, system: str, user: str) -> str: ...
 
@@ -37,7 +43,7 @@ class _OllamaClient(_LLMClient):
         import ollama
         client = ollama.Client(host=settings.OLLAMA_BASE_URL)
         response = client.chat(
-            model=settings.LLM_MODEL or settings.OLLAMA_MODEL,
+            model=self.model or settings.OLLAMA_MODEL,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -52,7 +58,7 @@ class _OpenAIClient(_LLMClient):
         from openai import OpenAI
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
-            model=settings.LLM_MODEL or "gpt-4o-mini",
+            model=self.model or "gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -67,7 +73,7 @@ class _AnthropicClient(_LLMClient):
         import anthropic
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model=settings.LLM_MODEL or "claude-haiku-4-5-20251001",
+            model=self.model or "claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": user}],
@@ -80,7 +86,7 @@ class _GeminiClient(_LLMClient):
         import google.generativeai as genai
         genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name=settings.LLM_MODEL or "gemini-2.0-flash",
+            model_name=self.model or "gemini-2.0-flash",
             system_instruction=system,
         )
         response = model.generate_content(
@@ -98,7 +104,7 @@ class _DeepSeekClient(_LLMClient):
             base_url=settings.DEEPSEEK_BASE_URL,
         )
         response = client.chat.completions.create(
-            model=settings.LLM_MODEL or "deepseek-chat",
+            model=self.model or "deepseek-chat",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -117,14 +123,23 @@ _PROVIDERS: dict[str, type[_LLMClient]] = {
 }
 
 
-def _get_client() -> _LLMClient:
-    provider = settings.LLM_PROVIDER.lower()
-    cls = _PROVIDERS.get(provider)
+# ── 작업별 프로바이더·모델 해석 ───────────────────────────────────────────
+
+def _get_client(task: Task) -> _LLMClient:
+    """task에 맞는 프로바이더와 모델로 클라이언트를 생성한다."""
+    if task == "extract":
+        provider = settings.LLM_PROVIDER_EXTRACT
+        model    = settings.LLM_MODEL_EXTRACT
+    else:  # explain
+        provider = settings.LLM_PROVIDER_EXPLAIN
+        model    = settings.LLM_MODEL_EXPLAIN
+
+    cls = _PROVIDERS.get(provider.lower())
     if cls is None:
         raise ValueError(
-            f"지원하지 않는 LLM_PROVIDER: '{provider}'. 지원값: {list(_PROVIDERS)}"
+            f"지원하지 않는 LLM 프로바이더 ({task}): '{provider}'. 지원값: {list(_PROVIDERS)}"
         )
-    return cls()
+    return cls(model=model)
 
 
 # ── 공개 인터페이스 ────────────────────────────────────────────────────────
@@ -147,12 +162,19 @@ def generate_explanation(
 - 왜 이 등급으로 분류되었는지
 - 운영자에게 어떤 판단을 권장하는지"""
 
+    client = _get_client("explain")
     try:
-        explanation = _get_client().chat(_EXPLAIN_SYSTEM, prompt)
-        logger.info("LLM 설명 생성 완료 — provider=%s level=%s", settings.LLM_PROVIDER, risk_level)
+        explanation = client.chat(_EXPLAIN_SYSTEM, prompt)
+        logger.info(
+            "LLM 설명 생성 완료 — provider=%s model=%s level=%s",
+            settings.LLM_PROVIDER_EXPLAIN, client.model or "(default)", risk_level,
+        )
         return explanation
     except Exception as e:
-        logger.error("LLM 호출 실패 (provider=%s): %s — 기본 설명 반환", settings.LLM_PROVIDER, e)
+        logger.error(
+            "LLM 설명 생성 실패 (provider=%s model=%s): %s — 기본 설명 반환",
+            settings.LLM_PROVIDER_EXPLAIN, client.model or "(default)", e,
+        )
         return FALLBACK_TEMPLATES.get(risk_level, "분석 결과를 확인하세요.")
 
 
@@ -169,7 +191,12 @@ def extract_texts(markdown: str, max_items: int) -> list[str]:
 마크다운:
 {markdown[:6000]}"""
 
-    content = _get_client().chat(_EXTRACT_SYSTEM, prompt)
+    client = _get_client("extract")
+    logger.info(
+        "텍스트 추출 시작 — provider=%s model=%s",
+        settings.LLM_PROVIDER_EXTRACT, client.model or "(default)",
+    )
+    content = client.chat(_EXTRACT_SYSTEM, prompt)
     start = content.find("[")
     end = content.rfind("]") + 1
     if start == -1 or end == 0:

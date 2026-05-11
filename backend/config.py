@@ -17,10 +17,13 @@ class Settings:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 
-    # LLM 공급자 설정 — ollama | openai | anthropic | gemini | deepseek
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
-    # 공급자별 모델 오버라이드 (미설정 시 각 공급자 기본값 사용)
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "")
+    # ── 텍스트 추출 전용 (크롤링 마크다운 → 사용자 텍스트 추출) ─────────────
+    LLM_PROVIDER_EXTRACT: str = os.getenv("LLM_PROVIDER_EXTRACT", "")
+    LLM_MODEL_EXTRACT: str = os.getenv("LLM_MODEL_EXTRACT", "")
+
+    # ── 설명 생성 전용 (위험도 판단 근거 한국어 설명) ────────────────────────
+    LLM_PROVIDER_EXPLAIN: str = os.getenv("LLM_PROVIDER_EXPLAIN", "")
+    LLM_MODEL_EXPLAIN: str = os.getenv("LLM_MODEL_EXPLAIN", "")
 
     # 클라우드 LLM API 키
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -56,14 +59,22 @@ class Settings:
                 f"DECISION_POLICY='{self.DECISION_POLICY}' 는 유효하지 않습니다. "
                 f"허용값: {VALID_POLICIES}"
             )
-        if self.LLM_PROVIDER not in VALID_LLM_PROVIDERS:
-            raise RuntimeError(
-                f"LLM_PROVIDER='{self.LLM_PROVIDER}' 는 유효하지 않습니다. "
-                f"허용값: {VALID_LLM_PROVIDERS}"
-            )
+        for key, val in [
+            ("LLM_PROVIDER_EXTRACT", self.LLM_PROVIDER_EXTRACT),
+            ("LLM_PROVIDER_EXPLAIN", self.LLM_PROVIDER_EXPLAIN),
+        ]:
+            if not val:
+                raise RuntimeError(f"{key} 환경 변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
+            if val not in VALID_LLM_PROVIDERS:
+                raise RuntimeError(
+                    f"{key}='{val}' 는 유효하지 않습니다. 허용값: {VALID_LLM_PROVIDERS}"
+                )
         logger.info(
-            "MODEL_PRIMARY=%s  DECISION_POLICY=%s  LLM_PROVIDER=%s",
-            self.MODEL_PRIMARY, self.DECISION_POLICY, self.LLM_PROVIDER,
+            "MODEL_PRIMARY=%s  DECISION_POLICY=%s  "
+            "LLM extract=%s/%s  explain=%s/%s",
+            self.MODEL_PRIMARY, self.DECISION_POLICY,
+            self.LLM_PROVIDER_EXTRACT, self.LLM_MODEL_EXTRACT or "(default)",
+            self.LLM_PROVIDER_EXPLAIN, self.LLM_MODEL_EXPLAIN or "(default)",
         )
 
 
