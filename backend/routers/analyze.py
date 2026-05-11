@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -6,9 +7,9 @@ from sqlalchemy.orm import Session
 from auth import get_client_or_operator
 from database import get_db
 from limiter import limiter
-from models import Client, Content, ModelPrediction
-from typing import Optional
+from models import Client, Content
 from schemas import AnalyzeRequest, ContentResponse
+from services.content_service import save_analysis
 from services.llm_service import generate_explanation
 from services.prediction_service import prediction_service
 
@@ -33,47 +34,18 @@ def analyze(
 
     all_predictions = prediction_service.predict_all(body.text)
     final = prediction_service.get_final_result(all_predictions)
-
     explanation = generate_explanation(
         text=body.text,
         risk_score=final["risk_score"],
         risk_level=final["risk_level"],
         recommended_action=final["recommended_action"],
     )
-
-    record = Content(
-        client_id=client.id if client else None,
+    return save_analysis(
+        db=db,
         content_id=body.content_id,
         text=body.text,
-        risk_score=final["risk_score"],
-        risk_level=final["risk_level"],
-        recommended_action=final["recommended_action"],
+        client_id=client.id if client else None,
+        all_predictions=all_predictions,
+        final=final,
         explanation=explanation,
     )
-    db.add(record)
-    db.flush()
-
-    for pred in all_predictions:
-        db.add(ModelPrediction(
-            content_id=body.content_id,
-            model_name=pred["model_name"],
-            model_version=pred["model_version"],
-            model_type=pred["model_type"],
-            risk_score=pred["risk_score"],
-            risk_level=pred["risk_level"],
-            recommended_action=pred["recommended_action"],
-            confidence=pred.get("confidence"),
-            latency_ms=pred.get("latency_ms"),
-            is_selected=pred["is_selected"],
-            is_shadow=pred["is_shadow"],
-        ))
-
-    db.commit()
-    db.refresh(record)
-
-    logger.info(
-        "Saved content_id=%s with %d model prediction(s)",
-        body.content_id,
-        len(all_predictions),
-    )
-    return record

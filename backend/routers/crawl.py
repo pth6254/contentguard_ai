@@ -13,8 +13,10 @@ from auth import get_client_or_operator
 from config import settings
 from database import get_db
 from limiter import limiter
-from models import Client, Content, ModelPrediction
+from models import Client
 from schemas import CrawlRequest
+from services.content_service import save_analysis
+from services.llm_service import generate_explanation
 from services.prediction_service import prediction_service
 
 logger = logging.getLogger(__name__)
@@ -100,53 +102,24 @@ def _stream(url: str, max_items: int, db: Session, client_id: Optional[int]) -> 
     for i, text in enumerate(texts, start=1):
         content_id = f"{prefix}_{i:03d}"
         try:
-            if db.query(Content).filter(Content.content_id == content_id).first():
-                skipped += 1
-                continue
-
             all_predictions = prediction_service.predict_all(text)
             final = prediction_service.get_final_result(all_predictions)
-
-            record = Content(
-                client_id=client_id,
-                content_id=content_id,
+            explanation = generate_explanation(
                 text=text,
                 risk_score=final["risk_score"],
                 risk_level=final["risk_level"],
                 recommended_action=final["recommended_action"],
-                explanation=None,
             )
-            db.add(record)
-            db.flush()
-
-            for pred in all_predictions:
-                db.add(ModelPrediction(
-                    content_id=content_id,
-                    model_name=pred["model_name"],
-                    model_version=pred["model_version"],
-                    model_type=pred["model_type"],
-                    risk_score=pred["risk_score"],
-                    risk_level=pred["risk_level"],
-                    recommended_action=pred["recommended_action"],
-                    confidence=pred.get("confidence"),
-                    latency_ms=pred.get("latency_ms"),
-                    is_selected=pred["is_selected"],
-                    is_shadow=pred["is_shadow"],
-                ))
-
-            db.commit()
+            record = save_analysis(db, content_id, text, client_id, all_predictions, final, explanation)
             saved += 1
-
             yield _sse({
                 "type": "item",
                 "content_id": content_id,
                 "text": text,
-                "risk_level": final["risk_level"],
-                "risk_score": final["risk_score"],
+                "risk_level": record.risk_level,
+                "risk_score": record.risk_score,
             })
-
         except Exception as e:
-            db.rollback()
             errors += 1
             logger.error("크롤링 항목 분석 실패: content_id=%s error=%s", content_id, e)
             yield _sse({"type": "item_error", "text": text[:40], "reason": str(e)})

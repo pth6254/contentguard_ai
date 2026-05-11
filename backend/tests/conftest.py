@@ -20,7 +20,7 @@ from unittest.mock import patch
 from database import Base, get_db
 from main import app
 from models import Client
-from auth import get_client, require_operator
+from auth import get_client, get_client_or_operator, require_operator
 from services.prediction_service import prediction_service
 
 _test_engine = create_engine(
@@ -109,11 +109,15 @@ def client(db_session):
     def override_get_client():
         return _MOCK_CLIENT
 
+    def override_get_client_or_operator():
+        return _MOCK_CLIENT
+
     def override_require_operator():
         return None
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_client] = override_get_client
+    app.dependency_overrides[get_client_or_operator] = override_get_client_or_operator
     app.dependency_overrides[require_operator] = override_require_operator
     with TestClient(app) as tc:
         yield tc
@@ -126,6 +130,8 @@ def mock_predict():
         patch.object(prediction_service, "predict_all", return_value=MOCK_PREDICTIONS),
         patch.object(prediction_service, "get_final_result", return_value=MOCK_FINAL_RESULT),
         patch("routers.analyze.generate_explanation", return_value="테스트 설명입니다."),
+        patch("routers.upload.generate_explanation", return_value="테스트 설명입니다."),
+        patch("routers.crawl.generate_explanation", return_value="테스트 설명입니다."),
     ):
         yield
 

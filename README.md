@@ -14,7 +14,7 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
 - **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
 - **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
-- **LLM 설명 생성**: Ollama(qwen3.5:9b)로 위험 판단 근거를 한국어로 설명
+- **LLM 설명 생성**: Ollama(qwen3.5:9b)로 위험 판단 근거를 한국어로 설명. `/api/analyze`는 즉시 생성, `/api/upload`는 HIGH/CRITICAL 즉시·MEDIUM/LOW 백그라운드 생성, `/api/crawl`은 항목마다 스트리밍 중 생성
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
 - **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
@@ -50,12 +50,13 @@ contentguard_ai/
 │   │   ├── active_learning.py      # GET /api/active-learning/candidates
 │   │   └── admin.py                # POST /admin/clients, /admin/clients/{id}/keys
 │   ├── services/
+│   │   ├── content_service.py      # save_analysis() — 예측 결과 DB 저장 공통 로직
 │   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
 │   │   ├── llm_service.py          # Ollama LLM 설명 생성
 │   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
 │   └── tests/
-│       ├── unit/                   # 단위 테스트 (risk_service, prediction_logic, schemas)
-│       └── integration/            # 통합 테스트 170개 (analyze, contents, reviews, upload, crawl, admin, register)
+│       ├── unit/                   # 단위 테스트 (content_service, risk_service, prediction_logic, schemas)
+│       └── integration/            # 통합 테스트 (analyze, contents, reviews, upload, crawl, admin, register)
 ├── dashboard/                # Next.js 프론트엔드
 │   ├── app/
 │   │   ├── page.tsx                # 대시보드 (병렬 카운트 조회·차트·자동 새로고침)
@@ -404,7 +405,7 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-170개 테스트 (통합 + 유닛). 테스트 환경에서는 Rate Limit이 자동 비활성화됩니다.
+185개 테스트 (통합 + 유닛). 테스트 환경에서는 Rate Limit이 자동 비활성화됩니다.
 
 ## GitHub에서 다른 PC로 배포
 
