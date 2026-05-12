@@ -152,15 +152,13 @@ class LogisticRegressionModel(BaseMLModel):
         classes = self.model.classes_          # 학습 시 결정된 클래스 순서
         latency_ms = int((time.perf_counter() - t0) * 1000)
 
-        # 클래스 확률 × 등급 중간값 가중합 → 연속 위험 점수
-        risk_score = round(
-            float(np.clip(
-                sum(proba[i] * _LEVEL_MIDPOINTS[c] for i, c in enumerate(classes)),
-                0.0, 1.0,
-            )),
-            2,
-        )
-        confidence = round(float(proba.max()), 2)   # 최대 클래스 확률을 신뢰도로 사용
+        # argmax 클래스의 범위 안에서 신뢰도에 따라 점수를 결정한다.
+        # 가중평균 방식은 불확실할 때 MEDIUM으로 수렴하는 문제가 있어 이 방식을 사용.
+        _RANGES = {"LOW": (0.00, 0.29), "MEDIUM": (0.30, 0.59), "HIGH": (0.60, 0.84), "CRITICAL": (0.85, 1.00)}
+        pred_class = classes[int(np.argmax(proba))]
+        confidence = round(float(proba.max()), 2)
+        low, high = _RANGES[pred_class]
+        risk_score = round(float(np.clip(low + (high - low) * confidence, 0.0, 1.0)), 2)
 
         risk_level = classify_risk_level(risk_score)
         recommended_action = get_recommended_action(risk_level)
