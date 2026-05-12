@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from limiter import limiter
-from routers import active_learning, admin, analyze, contents, crawl, register, reviews, upload
+from routers import active_learning, admin, analyze, contents, crawl, register, reviews
 from routers import auth as auth_router
 
 logging.basicConfig(
@@ -41,7 +41,6 @@ app.include_router(analyze.router)
 app.include_router(contents.router)
 app.include_router(reviews.router)
 app.include_router(active_learning.router)
-app.include_router(upload.router)
 app.include_router(crawl.router)
 app.include_router(admin.router)
 

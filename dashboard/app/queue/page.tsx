@@ -225,6 +225,35 @@ export default function QueuePage() {
                       </div>
                     )}
 
+                    {/* HIGH/CRITICAL 심층 분석 */}
+                    {item.explanation_json?.deep_analysis && (
+                      <div className="rounded-md bg-red-950/30 border border-red-800/40 p-3 space-y-1.5">
+                        <p className="text-red-400 text-xs font-medium">심층 위험 분석</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+                          <span className="text-slate-500">특정 대상 위협</span>
+                          <span className={item.explanation_json.deep_analysis.is_targeted ? "text-red-400" : "text-slate-400"}>
+                            {item.explanation_json.deep_analysis.is_targeted ? "예" : "아니오"}
+                          </span>
+                          <span className="text-slate-500">즉각적 위험</span>
+                          <span className={item.explanation_json.deep_analysis.is_immediate ? "text-red-400" : "text-slate-400"}>
+                            {item.explanation_json.deep_analysis.is_immediate ? "예" : "아니오"}
+                          </span>
+                          <span className="text-slate-500">실행 가능성</span>
+                          <span className={
+                            item.explanation_json.deep_analysis.actionability === "high" ? "text-red-400" :
+                            item.explanation_json.deep_analysis.actionability === "medium" ? "text-yellow-400" : "text-slate-400"
+                          }>
+                            {item.explanation_json.deep_analysis.actionability}
+                          </span>
+                          <span className="text-slate-500">위협 대상</span>
+                          <span className="text-slate-300">{item.explanation_json.deep_analysis.target_description}</span>
+                        </div>
+                        <p className="text-xs text-red-300/80 border-t border-red-800/30 pt-1.5">
+                          권장 조치: {item.explanation_json.deep_analysis.suggested_action}
+                        </p>
+                      </div>
+                    )}
+
                     {item.explanation && (
                       <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{item.explanation}</p>
                     )}

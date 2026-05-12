@@ -167,7 +167,6 @@ def mock_predict():
             MOCK_FINAL_RESULT["recommended_action"],
         )),
         patch("routers.analyze.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
-        patch("routers.upload.generate_explanation", return_value="테스트 설명입니다."),
         patch("routers.crawl.generate_explanation", return_value="테스트 설명입니다."),
     ):
         yield

@@ -55,6 +55,12 @@ class Settings:
     # 레이턴시 +1~3초, LLM 호출 1회 추가. 기본 비활성.
     LLM_CONTEXT_REVIEW: bool = os.getenv("LLM_CONTEXT_REVIEW", "false").lower() == "true"
 
+    # MEDIUM 구간 LLM tiebreaker — MEDIUM 점수에서만 LLM을 호출해 LOW/MEDIUM/HIGH 재분류
+    # 명확한 케이스(LOW·HIGH)는 호출 건너뜀. 기본 비활성.
+    LLM_TIEBREAKER: bool  = os.getenv("LLM_TIEBREAKER", "false").lower() == "true"
+    LLM_TIEBREAKER_MIN: float = float(os.getenv("LLM_TIEBREAKER_MIN", "0.30"))
+    LLM_TIEBREAKER_MAX: float = float(os.getenv("LLM_TIEBREAKER_MAX", "0.60"))
+
     # LLM 최대 출력 토큰 수. Ollama는 기본 무제한이므로 명시적으로 제한해야 빠름.
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "500"))
 
@@ -72,6 +78,10 @@ class Settings:
     # 초기 운영자 시드 (operators 테이블이 비어 있으면 자동 생성)
     OPERATOR_EMAIL: str = os.getenv("OPERATOR_EMAIL", "")
     OPERATOR_PASSWORD: str = os.getenv("OPERATOR_PASSWORD", "")
+
+    # HIGH/CRITICAL LLM 심층 분석 — is_targeted, is_immediate, actionability 등 판단
+    # HIGH/CRITICAL 케이스에서만 호출해 비용 부담을 제한. 기본 비활성.
+    LLM_DEEP_ANALYSIS: bool = os.getenv("LLM_DEEP_ANALYSIS", "false").lower() == "true"
 
     # Decision Policy — 복수 모델 결과를 최종 판단으로 합산하는 방식
     #   primary_only  : primary 모델 결과만 사용 (기본)

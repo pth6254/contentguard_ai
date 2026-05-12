@@ -71,6 +71,24 @@ def analyze(
                 context_modifier, calibrated_score,
             )
 
+    # ── 6.5. MEDIUM 구간 LLM tiebreaker (LLM_TIEBREAKER=true 시 활성) ────────
+    # 명확한 LOW·HIGH는 건너뛰고 애매한 MEDIUM에서만 LLM 재분류
+    if (settings.LLM_TIEBREAKER
+            and settings.LLM_TIEBREAKER_MIN <= calibrated_score <= settings.LLM_TIEBREAKER_MAX):
+        from services.tiebreaker import tiebreak
+        tb_modifier, tb_reasoning = tiebreak(
+            body.text, calibrated_score, category_scores, triggered_rules
+        )
+        if tb_modifier != 0.0:
+            calibrated_score = round(
+                max(0.0, min(1.0, calibrated_score + tb_modifier)), 3
+            )
+            logger.info(
+                "Tiebreaker 적용 — modifier=%.3f → calibrated_score=%.3f",
+                tb_modifier, calibrated_score,
+            )
+        context_note = " | ".join(filter(None, [context_note, tb_reasoning]))
+
     # ── 7. 강제 승격 규칙 적용 ───────────────────────────────────────────────
     final_score, final_grade, final_action = apply_forced_escalation(
         calibrated_score, triggered_rules_obj
@@ -85,6 +103,14 @@ def analyze(
     # ── 8. Evidence span 추출 ─────────────────────────────────────────────────
     evidence_spans = extract_evidence_spans(masked_text, category_scores)
 
+    # ── 8.5. HIGH/CRITICAL 심층 분석 (LLM_DEEP_ANALYSIS=true 시 활성) ────────
+    deep_analysis = None
+    if settings.LLM_DEEP_ANALYSIS and final_grade in ("HIGH", "CRITICAL"):
+        from services.deep_analysis import analyze_deeply
+        deep_analysis = analyze_deeply(
+            body.text, final_grade, category_scores, triggered_rules, evidence_spans
+        )
+
     # ── 9. LLM 구조화 설명 생성 ──────────────────────────────────────────────
     explanation_json = generate_explanation_json(
         masked_text=masked_text,
@@ -95,6 +121,7 @@ def analyze(
         triggered_rules=triggered_rules,
         evidence_spans=evidence_spans,
         context_note=context_note,
+        deep_analysis=deep_analysis,
     )
     explanation = explanation_json.get("summary", "")
 

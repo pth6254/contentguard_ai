@@ -92,18 +92,6 @@ class CrawlRequest(BaseModel):
     max_items: int = Field(20, ge=1, le=50)
 
 
-class UploadError(BaseModel):
-    row: int
-    content_id: str
-    reason: str
-
-
-class UploadResult(BaseModel):
-    total: int
-    saved: int
-    skipped: int
-    errors: list[UploadError]
-
 
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, example="홍길동")

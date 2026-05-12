@@ -202,6 +202,7 @@ def generate_explanation_json(
     triggered_rules: list[dict],
     evidence_spans: list[dict],
     context_note: str = "",
+    deep_analysis: dict | None = None,
 ) -> dict:
     """
     LLM을 해설자로만 사용해 구조화된 JSON 설명을 생성한다.
@@ -240,8 +241,18 @@ def generate_explanation_json(
 
     context_section = f"\n[맥락 분석 결과]\n{context_note}\n" if context_note else ""
 
+    deep_section = ""
+    if deep_analysis:
+        deep_section = (
+            f"\n[심층 위험 분석]\n"
+            f"  특정 대상 위협: {'예' if deep_analysis.get('is_targeted') else '아니오'}\n"
+            f"  즉각적 위험: {'예' if deep_analysis.get('is_immediate') else '아니오'}\n"
+            f"  실행 가능성: {deep_analysis.get('actionability', 'low')}\n"
+            f"  위협 대상: {deep_analysis.get('target_description', '불특정')}\n"
+        )
+
     prompt = f"""다음은 콘텐츠 안전 시스템의 분석 결과입니다.
-{context_section}
+{context_section}{deep_section}
 [분석 대상 텍스트]
 {masked_text}
 
@@ -302,9 +313,12 @@ def generate_explanation_json(
             final_grade, final_score, category_scores, triggered_rules, recommended_action
         )
 
+    if deep_analysis:
+        parsed["deep_analysis"] = deep_analysis
+
     logger.info(
-        "LLM JSON 설명 생성 완료 — provider=%s grade=%s",
-        settings.LLM_PROVIDER_EXPLAIN, final_grade,
+        "LLM JSON 설명 생성 완료 — provider=%s grade=%s deep=%s",
+        settings.LLM_PROVIDER_EXPLAIN, final_grade, bool(deep_analysis),
     )
     return parsed
 
