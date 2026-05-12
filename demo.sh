@@ -63,8 +63,10 @@ IDX=$(( RANDOM % ${#TEXTS[@]} ))
 SAMPLE_TEXT="${TEXTS[$IDX]}"
 
 # JSON 내 UTC 타임스탬프를 KST(+09:00)로 변환해서 출력
-pretty_kst() {
-  python3 - <<'EOF'
+# heredoc + pipe는 stdin 충돌로 동작 안 함 → 임시 파일로 스크립트 전달
+_KST_PY=$(mktemp /tmp/pretty_kst_XXXXXX.py)
+trap "rm -f $_KST_PY" EXIT
+cat > "$_KST_PY" << 'PYEOF'
 import sys, json, re
 from datetime import datetime, timezone, timedelta
 
@@ -86,7 +88,10 @@ try:
 except Exception:
     pretty = raw
 print(ISO_RE.sub(to_kst, pretty))
-EOF
+PYEOF
+
+pretty_kst() {
+  python3 "$_KST_PY"
 }
 
 echo "======================================"
