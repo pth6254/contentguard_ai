@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import classification_report, f1_score, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.svm import LinearSVR
 
@@ -52,28 +52,22 @@ def report_regression(name: str, y_true: np.ndarray, y_pred: np.ndarray) -> None
     true_levels = [score_to_level(s) for s in y_true]
     pred_levels = [score_to_level(s) for s in y_pred]
     acc = sum(t == p for t, p in zip(true_levels, pred_levels)) / len(true_levels)
+    f1  = f1_score(true_levels, pred_levels, labels=LEVEL_ORDER, average="macro", zero_division=0)
 
     print(f"\n{'─'*44}")
     print(f"  {name}")
-    print(f"  MAE: {mae:.4f}   R²: {r2:.4f}   등급 정확도: {acc:.1%}")
-    for level in LEVEL_ORDER:
-        subset = [(t, p) for t, p in zip(true_levels, pred_levels) if t == level]
-        if subset:
-            correct = sum(t == p for t, p in subset)
-            print(f"    {level:8s}: {correct}/{len(subset)}")
+    print(f"  MAE: {mae:.4f}   R²: {r2:.4f}   등급 정확도: {acc:.1%}   F1(macro): {f1:.1%}")
+    print(classification_report(true_levels, pred_levels, labels=LEVEL_ORDER, zero_division=0))
 
 
 def report_classifier(name: str, y_true: list[str], y_pred: list[str]) -> None:
     acc = sum(t == p for t, p in zip(y_true, y_pred)) / len(y_true)
+    f1  = f1_score(y_true, y_pred, labels=LEVEL_ORDER, average="macro", zero_division=0)
 
     print(f"\n{'─'*44}")
     print(f"  {name}")
-    print(f"  등급 정확도: {acc:.1%}")
-    for level in LEVEL_ORDER:
-        subset = [(t, p) for t, p in zip(y_true, y_pred) if t == level]
-        if subset:
-            correct = sum(t == p for t, p in subset)
-            print(f"    {level:8s}: {correct}/{len(subset)}")
+    print(f"  등급 정확도: {acc:.1%}   F1(macro): {f1:.1%}")
+    print(classification_report(y_true, y_pred, labels=LEVEL_ORDER, zero_division=0))
 
 
 # ──────────────────────────────────────────────
