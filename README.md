@@ -19,13 +19,16 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **3단계 하이브리드 텍스트 추출**: BeautifulSoup(CSS 패턴) → Trafilatura → LLM 폴백 순으로 댓글·리뷰 추출
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
 - **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
+- **콘텐츠 삭제**: 운영자가 이력 페이지에서 콘텐츠 레코드 및 관련 예측 결과 일괄 삭제
 - **아웃바운드 웹훅**: 심사 완료 시 클라이언트 서비스로 자동 POST 발송 (BackgroundTasks 비동기 처리)
 - **JWT 인증**: 운영자·클라이언트 계정 분리, 로그인 기반 JWT 발급
 - **클라이언트 자가 가입**: 이메일+비밀번호로 회원가입 후 직접 API 키 발급·관리
+- **클라이언트 CRUD**: 운영자가 어드민 페이지에서 클라이언트 등록·이름 수정·삭제 가능
 - **클라이언트 심사 상태 조회**: API 키로 자신이 제출한 콘텐츠의 심사 결과 조회
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
 - **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
 - **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
+- **KST 시간 표시**: 프론트엔드에서 UTC 타임스탬프를 한국 시간(KST, +09:00)으로 변환 표시
 - **파일 일괄 업로드**: CSV / Excel / JSON / TXT 업로드 후 일괄 분석 (최대 1,000건)
 - **웹 크롤링 파이프라인**: Firecrawl 수집 → 3단계 텍스트 추출 → ContentGuard 분석 (SSE 스트리밍)
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
@@ -132,10 +135,14 @@ POST /api/upload               →  Authorization: Bearer <api_key>
 
 ```
 POST /auth/operator/login          →  JWT 발급
-GET  /api/contents                 →  콘텐츠 목록 (operator JWT)
-POST /api/reviews/{id}             →  심사 처리 (operator JWT) → 웹훅 자동 발송
-PATCH /admin/clients/{id}/webhook  →  클라이언트 웹훅 URL 등록 (operator JWT)
-GET  /admin/clients                →  클라이언트 관리 (operator JWT)
+GET    /api/contents                 →  콘텐츠 목록 (operator JWT)
+DELETE /api/contents/{id}           →  콘텐츠 삭제 (operator JWT)
+POST   /api/reviews/{id}            →  심사 처리 (operator JWT) → 웹훅 자동 발송
+GET    /admin/clients               →  클라이언트 목록 (operator JWT)
+POST   /admin/clients               →  클라이언트 생성 (operator JWT)
+PATCH  /admin/clients/{id}          →  클라이언트 이름 수정 (operator JWT)
+DELETE /admin/clients/{id}          →  클라이언트 삭제 (operator JWT)
+PATCH  /admin/clients/{id}/webhook  →  웹훅 URL 등록·수정 (operator JWT)
 ```
 
 ## 웹훅
@@ -182,6 +189,8 @@ curl -X PATCH http://localhost:8000/admin/clients/{id}/webhook \
 # .env에 DEMO_CLIENT_API_KEY 설정 후
 bash demo.sh
 ```
+
+실행할 때마다 사기·가품·개인정보 유출·폭언 등 카테고리별 샘플 텍스트 31종 중 하나가 무작위로 선택됩니다. 출력되는 타임스탬프는 KST(한국 시간)로 자동 변환됩니다.
 
 | 항목 | 주소 |
 |------|------|
@@ -335,7 +344,7 @@ cd dashboard && npm install && npm run dev
 
 ```bash
 pytest
-# 189개 테스트 (통합 + 유닛)
+# 200개 이상 테스트 (통합 + 유닛)
 ```
 
 ## 환경변수 전체 목록
@@ -394,10 +403,13 @@ pytest
 | GET | `/api/contents` | 콘텐츠 목록 (페이지네이션·검색·필터) |
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
 | GET | `/api/contents/{id}/predictions` | 모델별 예측 결과 |
+| DELETE | `/api/contents/{id}` | 콘텐츠 및 예측 결과 삭제 |
 | POST | `/api/reviews/{id}` | 심사 결과 제출 → 웹훅 자동 발송 |
 | GET | `/api/active-learning/candidates` | 재학습 후보 조회 |
 | POST | `/admin/clients` | 클라이언트 생성 |
 | GET | `/admin/clients` | 클라이언트 목록 |
+| PATCH | `/admin/clients/{id}` | 클라이언트 이름 수정 |
+| DELETE | `/admin/clients/{id}` | 클라이언트 삭제 (API 키 포함) |
 | PATCH | `/admin/clients/{id}/webhook` | 클라이언트 웹훅 URL 등록·수정 |
 | POST | `/admin/clients/{id}/keys` | API 키 발급 |
 | DELETE | `/admin/keys/{id}` | API 키 비활성화 |
@@ -416,9 +428,9 @@ pytest
 | `/` | 운영자 | 전체 통계, 위험 등급 분포 차트, 30초 자동 새로고침 |
 | `/queue` | 운영자 | 심사 큐 (검색·필터·페이지네이션·운영자 판단) |
 | `/analyze` | 운영자 | 텍스트 직접 입력 후 즉시 AI 분석 |
-| `/history` | 운영자 | 전체 이력 (검색·필터·심사 재변경) |
+| `/history` | 운영자 | 전체 이력 (검색·필터·심사 재변경·콘텐츠 삭제) |
 | `/collect` | 운영자 | API 연동 가이드·파일 업로드·웹 크롤링 |
-| `/admin` | 운영자 | 클라이언트 관리, API 키 발급, 웹훅 URL 등록 |
+| `/admin` | 운영자 | 클라이언트 등록·이름 수정·삭제, API 키 발급·비활성화, 웹훅 URL 관리 |
 
 ## LLM 프로바이더 설정
 
