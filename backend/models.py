@@ -13,6 +13,7 @@ class Client(Base):
     name          = Column(String, nullable=False, unique=True)
     email         = Column(String, nullable=True, unique=True, index=True)
     password_hash = Column(String, nullable=True)
+    webhook_url   = Column(String, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

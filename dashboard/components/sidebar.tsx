@@ -2,9 +2,10 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings, LogOut, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
+import { getUserName } from "@/lib/auth"
 
 const NAV = [
   { href: "/",        label: "대시보드",    icon: LayoutDashboard },
@@ -54,6 +55,14 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 py-4 border-t border-slate-700 space-y-3">
+        {/* 운영자 정보 */}
+        {getUserName() && (
+          <div className="flex items-center gap-2 px-2 text-xs text-slate-500">
+            <User className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{getUserName()}</span>
+          </div>
+        )}
+
         {/* API 연결 상태 */}
         <div className="flex items-center gap-2 px-2 text-xs">
           <span className={cn("h-2 w-2 rounded-full shrink-0", connected === true ? "bg-emerald-400" : connected === false ? "bg-red-400" : "bg-slate-500")} />

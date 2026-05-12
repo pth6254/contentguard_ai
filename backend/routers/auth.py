@@ -56,7 +56,7 @@ def signup(request: Request, body: ClientSignupRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(client)
 
-    token = create_access_token(sub=str(client.id), role="client")
+    token = create_access_token(sub=str(client.id), role="client", name=client.name)
     logger.info("클라이언트 가입: id=%d email=%s", client.id, client.email)
     return TokenResponse(access_token=token, expires_in=settings.JWT_EXPIRE_MINUTES * 60)
 
@@ -71,7 +71,7 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     if not client or not client.password_hash or not verify_password(body.password, client.password_hash):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
 
-    token = create_access_token(sub=str(client.id), role="client")
+    token = create_access_token(sub=str(client.id), role="client", name=client.name)
     logger.info("클라이언트 로그인: id=%d", client.id)
     return TokenResponse(access_token=token, expires_in=settings.JWT_EXPIRE_MINUTES * 60)
 
@@ -86,7 +86,7 @@ def operator_login(request: Request, body: LoginRequest, db: Session = Depends(g
     if not operator or not verify_password(body.password, operator.password_hash):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
 
-    token = create_access_token(sub=str(operator.id), role="operator")
+    token = create_access_token(sub=str(operator.id), role="operator", name=operator.name)
     logger.info("운영자 로그인: id=%d", operator.id)
     return TokenResponse(access_token=token, expires_in=settings.JWT_EXPIRE_MINUTES * 60)
 

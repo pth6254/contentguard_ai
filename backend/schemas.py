@@ -40,7 +40,12 @@ class ClientResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
+    webhook_url: Optional[str] = None
     created_at: datetime
+
+
+class WebhookUrlUpdate(BaseModel):
+    webhook_url: Optional[str] = Field(None, example="https://your-service.com/webhook")
 
 
 class ApiKeyCreate(BaseModel):
@@ -120,6 +125,18 @@ class ClientMeResponse(BaseModel):
 
 class KeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, example="production-key")
+
+
+class ContentStatusResponse(BaseModel):
+    """클라이언트용 콘텐츠 심사 상태 응답 (내부 정보 제외)."""
+    content_id: str
+    risk_level: str
+    risk_score: float
+    review_status: str
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ModelPredictionResponse(BaseModel):

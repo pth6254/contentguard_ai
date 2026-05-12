@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_operator
 from database import get_db
 from models import ApiKey, Client, Operator
-from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse
+from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse, WebhookUrlUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,19 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db)):
             dependencies=[Depends(get_current_operator)])
 def list_clients(db: Session = Depends(get_db)):
     return db.query(Client).order_by(Client.created_at.desc()).all()
+
+
+@router.patch("/clients/{client_id}/webhook", response_model=ClientResponse,
+              dependencies=[Depends(get_current_operator)])
+def update_webhook(client_id: int, body: WebhookUrlUpdate, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
+    client.webhook_url = body.webhook_url
+    db.commit()
+    db.refresh(client)
+    logger.info("웹훅 URL 업데이트: client_id=%d url=%s", client_id, body.webhook_url)
+    return client
 
 
 # ── API 키 관리 (운영자가 특정 클라이언트 키 관리) ─────────────────────────

@@ -5,10 +5,11 @@ const nextConfig = {
   output: "standalone",
   async rewrites() {
     return [
-      { source: "/api/:path*",  destination: `${API}/api/:path*` },
+      { source: "/api/:path*",   destination: `${API}/api/:path*` },
       { source: "/admin/:path*", destination: `${API}/admin/:path*` },
-      { source: "/register",    destination: `${API}/register` },
-      { source: "/health",      destination: `${API}/health` },
+      { source: "/auth/:path*",  destination: `${API}/auth/:path*` },
+      { source: "/register",     destination: `${API}/register` },
+      { source: "/health",       destination: `${API}/health` },
     ]
   },
 }

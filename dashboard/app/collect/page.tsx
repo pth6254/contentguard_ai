@@ -8,8 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api, type RiskLevel, type UploadResult } from "@/lib/api"
+import { getToken } from "@/lib/auth"
 
-const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? ""
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 type Tab = "api" | "file" | "crawl"
@@ -378,9 +378,13 @@ function CrawlTab({ onCrawlingChange }: { onCrawlingChange: (v: boolean) => void
     setRunningState(true); setItems([]); setDone(null); setError(null); setStatus("연결 중...")
     abortRef.current = new AbortController()
     try {
+      const token = getToken()
       const res = await fetch("/api/crawl", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Admin-Secret": ADMIN_SECRET },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url: url.trim(), max_items: maxItems }),
         signal: abortRef.current.signal,
       })

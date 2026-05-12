@@ -1,13 +1,13 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle } from "lucide-react"
+import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle, Webhook, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getToken } from "@/lib/auth"
 
-interface Client  { id: number; name: string; created_at: string }
+interface Client  { id: number; name: string; webhook_url: string | null; created_at: string }
 interface ApiKey  { id: number; client_id: number; name: string; key_prefix: string; is_active: boolean; created_at: string; last_used_at: string | null }
 interface NewKey  extends ApiKey { key: string }
 
@@ -36,6 +36,88 @@ function CopyButton({ text }: { text: string }) {
     <button onClick={copy} className="text-slate-400 hover:text-slate-100 transition-colors">
       {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
+  )
+}
+
+function WebhookSection({ client, onUpdate }: { client: Client; onUpdate: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [url, setUrl]         = useState(client.webhook_url ?? "")
+  const [saving, setSaving]   = useState(false)
+  const [saved, setSaved]     = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+
+  const save = async () => {
+    setSaving(true); setError(null)
+    try {
+      await adminFetch(`/admin/clients/${client.id}/webhook`, {
+        method: "PATCH",
+        body: JSON.stringify({ webhook_url: url.trim() || null }),
+      })
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+      setEditing(false); onUpdate()
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Webhook className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+        <span className="text-xs text-slate-500 font-medium">웹훅 URL</span>
+        {client.webhook_url && !editing && (
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              placeholder="https://your-service.com/webhook"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && save()}
+              className="flex-1 h-8 text-sm font-mono"
+            />
+            <Button size="sm" onClick={save} disabled={saving}>
+              {saving ? "저장 중..." : "저장"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setUrl(client.webhook_url ?? "") }}>
+              취소
+            </Button>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          {client.webhook_url ? (
+            <span className="text-xs font-mono text-slate-400 flex-1 truncate">{client.webhook_url}</span>
+          ) : (
+            <span className="text-xs text-slate-600 flex-1">미설정</span>
+          )}
+          {saved && <span className="text-xs text-emerald-400">저장됨</span>}
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            {client.webhook_url ? "변경" : "등록"}
+          </button>
+          {client.webhook_url && (
+            <button
+              onClick={async () => {
+                await adminFetch(`/admin/clients/${client.id}/webhook`, {
+                  method: "PATCH", body: JSON.stringify({ webhook_url: null }),
+                })
+                onUpdate()
+              }}
+              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+            >
+              삭제
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -184,6 +266,11 @@ export default function AdminPage() {
                 <Button size="sm" onClick={() => createKey(client.id)} disabled={!newKeyName[client.id]?.trim()}>
                   키 발급
                 </Button>
+              </div>
+
+              {/* 웹훅 URL */}
+              <div className="border-t border-slate-700 pt-3">
+                <WebhookSection client={client} onUpdate={loadClients} />
               </div>
             </CardContent>
           </Card>

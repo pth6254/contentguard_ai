@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle } from "lucide-react"
+import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -66,11 +66,20 @@ export default function MyKeysPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-100">내 API 키</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          발급된 API 키를 <code className="text-indigo-400">Authorization: Bearer &lt;key&gt;</code> 헤더로 사용하세요.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">내 API 키</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            발급된 API 키를 <code className="text-indigo-400">Authorization: Bearer &lt;key&gt;</code> 헤더로 사용하세요.
+          </p>
+        </div>
+        <button
+          onClick={() => api.logout()}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-slate-400 hover:bg-slate-800 hover:text-red-400 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          로그아웃
+        </button>
       </div>
 
       {error && (

@@ -1,3 +1,4 @@
+from models import Content
 from tests.conftest import MOCK_FINAL_RESULT, MOCK_PREDICTIONS
 
 
@@ -82,3 +83,37 @@ class TestAnalyzeEndpoint:
         preds = client.get("/api/contents/C001/predictions").json()
         shadow = [p for p in preds if p["is_shadow"]]
         assert len(shadow) == 2
+
+
+class TestContentStatusEndpoint:
+    def test_returns_status_for_own_content(self, client, analyzed_content):
+        response = client.get(f"/api/contents/{analyzed_content['content_id']}/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content_id"] == analyzed_content["content_id"]
+        assert data["risk_level"] == analyzed_content["risk_level"]
+        assert data["review_status"] == "PENDING"
+        assert "text" not in data
+
+    def test_returns_403_for_other_clients_content(self, client, db_session, mock_predict):
+        other_content = Content(
+            content_id="OTHER001",
+            text="다른 클라이언트 콘텐츠",
+            client_id=999,
+            risk_score=0.5,
+            risk_level="MEDIUM",
+            recommended_action="REVIEW",
+        )
+        db_session.add(other_content)
+        db_session.commit()
+
+        response = client.get("/api/contents/OTHER001/status")
+        assert response.status_code == 403
+
+    def test_returns_404_for_nonexistent_content(self, client):
+        response = client.get("/api/contents/NOTFOUND/status")
+        assert response.status_code == 404
+
+    def test_returns_401_without_api_key(self, unauth_client):
+        response = unauth_client.get("/api/contents/ANY/status")
+        assert response.status_code == 401

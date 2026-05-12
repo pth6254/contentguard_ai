@@ -58,5 +58,13 @@ services:
       - backend
     restart: unless-stopped
 
+  demo-receiver:
+    build:
+      context: ./demo-receiver
+    container_name: contentguard-demo-receiver
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+
 volumes:
   postgres_data:

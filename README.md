@@ -14,17 +14,21 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
 - **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
 - **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
-- **LLM 설명 생성**: 위험 판단 근거를 한국어로 설명. `/api/analyze`는 즉시 생성, `/api/upload`는 HIGH/CRITICAL 즉시·MEDIUM/LOW 백그라운드 생성, `/api/crawl`은 항목마다 스트리밍 중 생성
-- **멀티 LLM 프로바이더**: `LLM_PROVIDER` 환경변수 한 줄로 Ollama(로컬) / OpenAI / Anthropic / Gemini / DeepSeek 전환 가능
+- **LLM 설명 생성**: 위험 판단 근거를 한국어로 설명. HIGH/CRITICAL은 즉시, MEDIUM/LOW는 백그라운드 생성
+- **멀티 LLM 프로바이더**: 텍스트 추출·설명 생성 작업별로 Ollama / OpenAI / Anthropic / Gemini / DeepSeek 독립 설정
+- **3단계 하이브리드 텍스트 추출**: BeautifulSoup(CSS 패턴) → Trafilatura → LLM 폴백 순으로 댓글·리뷰 추출
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
 - **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
+- **아웃바운드 웹훅**: 심사 완료 시 클라이언트 서비스로 자동 POST 발송 (BackgroundTasks 비동기 처리)
+- **JWT 인증**: 운영자·클라이언트 계정 분리, 로그인 기반 JWT 발급
+- **클라이언트 자가 가입**: 이메일+비밀번호로 회원가입 후 직접 API 키 발급·관리
+- **클라이언트 심사 상태 조회**: API 키로 자신이 제출한 콘텐츠의 심사 결과 조회
 - **페이지네이션**: 콘텐츠 목록 API에 `limit` / `offset` 지원, 프론트엔드 숫자 페이지 버튼
 - **검색**: 텍스트 내용 또는 content_id로 콘텐츠 검색 (300ms 디바운스)
 - **자동 새로고침**: 대시보드·심사 큐 30초 주기 자동 갱신 (ON/OFF 토글)
-- **파일 일괄 업로드**: CSV / Excel / JSON / TXT 업로드 후 일괄 분석, 저장/중복/오류 건수 반환 (최대 1,000건)
-- **시연용 크롤링 파이프라인**: Firecrawl로 외부 페이지 수집 → Ollama로 텍스트 추출 → ContentGuard 자동 분석 (SSE 스트리밍)
+- **파일 일괄 업로드**: CSV / Excel / JSON / TXT 업로드 후 일괄 분석 (최대 1,000건)
+- **웹 크롤링 파이프라인**: Firecrawl 수집 → 3단계 텍스트 추출 → ContentGuard 분석 (SSE 스트리밍)
 - **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
-- **자가 API 키 발급**: `POST /register`로 운영자 개입 없이 즉시 API 키 발급
 - **Rate Limiting**: IP 기반 요청 수 제한으로 남용 방지
 - **DB 마이그레이션**: Alembic으로 스키마 변경 이력 관리 및 안전한 운영 DB 적용
 
@@ -32,63 +36,60 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 
 ```
 contentguard_ai/
-├── backend/                  # FastAPI 백엔드
-│   ├── main.py               # 앱 진입점
-│   ├── config.py             # 환경변수 설정 (ALLOWED_ORIGINS, MODEL_PRIMARY 등)
-│   ├── auth.py               # API 키 / 운영자 인증
+├── backend/
+│   ├── main.py               # 앱 진입점, 초기 운영자 자동 시드
+│   ├── config.py             # 환경변수 설정
+│   ├── auth.py               # JWT / API 키 / 운영자 인증
 │   ├── limiter.py            # slowapi Rate Limiter
 │   ├── database.py           # SQLAlchemy DB 연결
-│   ├── models.py             # ORM 모델 (clients, api_keys, contents, model_predictions)
+│   ├── models.py             # ORM 모델 (clients, operators, api_keys, contents, model_predictions)
 │   ├── schemas.py            # Pydantic 요청/응답 스키마
 │   ├── migrations/           # Alembic 마이그레이션
 │   ├── routers/
-│   │   ├── register.py             # POST /register (자가 API 키 발급)
-│   │   ├── analyze.py              # POST /api/analyze
-│   │   ├── contents.py             # GET /api/contents (페이지네이션·검색 지원)
-│   │   ├── reviews.py              # POST /api/reviews/{id}
-│   │   ├── upload.py               # POST /api/upload (CSV/Excel/JSON/TXT)
+│   │   ├── auth.py                 # POST /auth/signup, /auth/login, /auth/operator/login, /auth/keys
+│   │   ├── register.py             # POST /register (레거시 자가 발급)
+│   │   ├── analyze.py              # POST /api/analyze, GET /api/contents/{id}/status
+│   │   ├── contents.py             # GET /api/contents (운영자 전용)
+│   │   ├── reviews.py              # POST /api/reviews/{id} + 웹훅 발송
+│   │   ├── upload.py               # POST /api/upload
 │   │   ├── crawl.py                # POST /api/crawl (SSE 스트리밍)
 │   │   ├── active_learning.py      # GET /api/active-learning/candidates
-│   │   └── admin.py                # POST /admin/clients, /admin/clients/{id}/keys
+│   │   └── admin.py                # /admin/* (운영자 전용, 웹훅 URL 관리 포함)
 │   ├── services/
-│   │   ├── content_service.py      # save_analysis() — 예측 결과 DB 저장 공통 로직
+│   │   ├── content_service.py      # save_analysis() — DB 저장 공통 로직
 │   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
-│   │   ├── llm_service.py          # 멀티 프로바이더 LLM (Ollama/OpenAI/Anthropic/Gemini/DeepSeek)
+│   │   ├── llm_service.py          # 멀티 프로바이더 LLM + 3단계 하이브리드 텍스트 추출
 │   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
 │   └── tests/
-│       ├── unit/                   # 단위 테스트 (content_service, risk_service, prediction_logic, schemas)
-│       └── integration/            # 통합 테스트 (analyze, contents, reviews, upload, crawl, admin, register)
-├── dashboard/                # Next.js 프론트엔드
+│       ├── unit/
+│       └── integration/
+├── dashboard/
 │   ├── app/
-│   │   ├── page.tsx                # 대시보드 (병렬 카운트 조회·차트·자동 새로고침)
-│   │   ├── queue/page.tsx          # 심사 큐 (검색·필터·페이지네이션·자동 새로고침)
-│   │   ├── analyze/page.tsx        # 콘텐츠 분석 입력
-│   │   ├── history/page.tsx        # 전체 이력 (검색·필터·페이지네이션·재변경)
-│   │   └── upload/page.tsx         # CSV 일괄 업로드 (드래그&드롭·미리보기·결과)
+│   │   ├── login/page.tsx          # 운영자 로그인
+│   │   ├── signup/page.tsx         # 클라이언트 회원가입
+│   │   ├── my-keys/page.tsx        # 클라이언트 API 키 관리 + 로그아웃
+│   │   ├── page.tsx                # 대시보드
+│   │   ├── queue/page.tsx          # 심사 큐
+│   │   ├── analyze/page.tsx        # 콘텐츠 분석
+│   │   ├── history/page.tsx        # 전체 이력
+│   │   └── collect/page.tsx        # 데이터 수집 (API·업로드·크롤링)
 │   ├── components/
-│   │   ├── review-dialog.tsx       # 심사·재변경 공유 다이얼로그
-│   │   ├── sidebar.tsx             # 사이드바 내비게이션
-│   │   └── ui/                     # Badge, Button, Card, Dialog, Input, Pagination 등
+│   │   ├── auth-guard.tsx          # 인증 가드 (역할별 레이아웃·리다이렉트)
+│   │   ├── sidebar.tsx             # 사이드바 내비게이션 + 운영자 이름 + 로그아웃
+│   │   ├── review-dialog.tsx       # 심사·재변경 다이얼로그
+│   │   └── ui/
 │   └── lib/
-│       ├── api.ts                  # FastAPI HTTP 클라이언트 (페이지네이션 응답 처리)
+│       ├── api.ts                  # FastAPI HTTP 클라이언트
+│       ├── auth.ts                 # JWT 토큰 관리 (localStorage)
 │       └── utils.ts
-├── data/
-│   ├── training_data.csv     # ML 학습 데이터 500건
-│   └── test_data.csv         # 모델 평가용 별도 테스트 데이터 70건 (4등급 고루 분포)
-├── models/                   # 학습된 모델 파일
-│   ├── tfidf_vectorizer.pkl
-│   ├── ridge_model.pkl
-│   ├── linear_svm_model.pkl
-│   └── logistic_regression_model.pkl
-├── scripts/
-│   ├── train.py                    # 전체 모델 학습 (Trainer 플러그인 구조)
-│   ├── seed_data.py                # 대시보드 테스트용 샘플 데이터 DB 전송 (20건)
-│   ├── demo_crawl.py               # 시연용: Firecrawl + Ollama → ContentGuard 파이프라인
-│   └── export_active_learning.py   # Active Learning 후보 CSV 내보내기
-├── .env                      # 환경변수 (로컬용, git 제외)
-├── .env.example              # 환경변수 템플릿
-├── docker-compose.yml        # 전체 스택 (백엔드 + 대시보드 + PostgreSQL + pgAdmin)
-└── requirements.txt          # Python 패키지 목록
+├── demo-receiver/
+│   ├── main.py               # 웹훅 수신 데모 서버 (POST /webhook, GET /logs)
+│   └── Dockerfile
+├── demo.sh                   # 웹훅 E2E 데모 스크립트
+├── .env
+├── .env.example
+├── docker-compose.yml
+└── requirements.txt
 ```
 
 ## 기술 스택
@@ -96,28 +97,98 @@ contentguard_ai/
 | 분류 | 기술 |
 |------|------|
 | 백엔드 | FastAPI, Uvicorn |
-| 데이터베이스 | PostgreSQL 17 (Docker), SQLAlchemy ORM |
+| 인증 | JWT (python-jose), bcrypt (passlib) |
+| 데이터베이스 | PostgreSQL 17, SQLAlchemy ORM, Alembic |
 | ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
-| LLM | Ollama / OpenAI / Anthropic / Gemini / DeepSeek — 텍스트 추출·설명 생성 작업별 독립 설정 |
+| LLM | Ollama / OpenAI / Anthropic / Gemini / DeepSeek |
+| 텍스트 추출 | BeautifulSoup4, Trafilatura, LLM (3단계 하이브리드) |
+| 웹훅 | httpx (비동기 아웃바운드), FastAPI BackgroundTasks |
 | 프론트엔드 | Next.js 14, TypeScript, Tailwind CSS |
 | 인프라 | Docker Compose |
 
-## ML 모델 구조
+## 계정 구조
 
-### 모델 인터페이스
+| 역할 | 인증 방식 | 접근 범위 |
+|------|----------|----------|
+| **클라이언트** | 이메일+비밀번호 → JWT → API 키 발급 | API 분석 요청, 내 API 키 관리, 심사 상태 조회 |
+| **운영자** | 이메일+비밀번호 → JWT | 전체 콘텐츠 검토, 심사, 관리 기능 |
 
-```python
-class BaseMLModel(ABC):
-    name: str
-    version: str
-    model_type: str
-    is_primary: bool
+### 클라이언트 흐름
 
-    @abstractmethod
-    def predict(self, text: str) -> dict: ...
+```
+POST /auth/signup  →  JWT 발급
+POST /auth/login   →  JWT 발급
+GET  /auth/keys    →  내 API 키 목록 (JWT 필요)
+POST /auth/keys    →  API 키 발급 (JWT 필요)
+
+실제 API 호출:
+POST /api/analyze              →  Authorization: Bearer <api_key>
+GET  /api/contents/{id}/status →  Authorization: Bearer <api_key>  (자기 콘텐츠만)
+POST /api/crawl                →  Authorization: Bearer <api_key>
+POST /api/upload               →  Authorization: Bearer <api_key>
 ```
 
-새 모델 추가 시 `BaseMLModel`을 상속한 클래스를 작성하고 `TRAINERS` / `ModelRegistry`에 등록하면 됩니다.
+### 운영자 흐름
+
+```
+POST /auth/operator/login          →  JWT 발급
+GET  /api/contents                 →  콘텐츠 목록 (operator JWT)
+POST /api/reviews/{id}             →  심사 처리 (operator JWT) → 웹훅 자동 발송
+PATCH /admin/clients/{id}/webhook  →  클라이언트 웹훅 URL 등록 (operator JWT)
+GET  /admin/clients                →  클라이언트 관리 (operator JWT)
+```
+
+## 웹훅
+
+심사 완료 시 해당 클라이언트의 `webhook_url`로 결과를 자동 전송합니다.
+
+### 흐름
+
+```
+[클라이언트 서비스]  →  POST /api/analyze  →  [ContentGuard]
+                                                    ↓ 운영자 심사
+[클라이언트 서비스]  ←  POST webhook_url   ←  [ContentGuard]
+        ↓
+   실제 DB에서 해당 글 삭제 / 숨김 처리
+```
+
+### 웹훅 페이로드
+
+```json
+{
+  "content_id": "review-001",
+  "review_status": "REMOVED",
+  "review_action": "remove",
+  "reviewed_at": "2026-05-12T15:30:00"
+}
+```
+
+### 웹훅 URL 등록
+
+대시보드 → **API 키 관리** → 클라이언트 카드 하단 → 웹훅 URL 등록
+
+또는 API:
+```bash
+curl -X PATCH http://localhost:8000/admin/clients/{id}/webhook \
+  -H "Authorization: Bearer <operator_jwt>" \
+  -d '{"webhook_url": "https://your-service.com/webhook"}'
+```
+
+### 데모 실행
+
+`docker-compose up -d` 실행 시 `demo-receiver` 컨테이너(포트 9000)가 함께 뜨며 웹훅 수신 서버로 동작합니다.
+
+```bash
+# .env에 DEMO_CLIENT_API_KEY 설정 후
+bash demo.sh
+```
+
+| 항목 | 주소 |
+|------|------|
+| 웹훅 수신 서버 | http://localhost:9000/webhook |
+| 수신 로그 확인 | http://localhost:9000/logs |
+
+## ML 모델 구조
 
 ### 등록된 모델
 
@@ -129,69 +200,75 @@ class BaseMLModel(ABC):
 
 ### Decision Policy
 
-`DECISION_POLICY` 환경변수로 최종 판단 방식을 설정합니다.
-
 | 정책 | 동작 |
 |------|------|
 | `primary_only` | primary 모델 결과만 사용 (기본) |
 | `conservative` | 전체 모델 중 가장 높은 위험 점수 채택 |
 | `ensemble_mean` | 전체 모델 점수 평균 |
-| `majority_vote` | 위험 등급 다수결 (동률 시 높은 등급 우선) |
+| `majority_vote` | 위험 등급 다수결 |
 
 ## 위험 등급 기준
 
 | 등급 | 점수 범위 | 권장 조치 |
 |------|-----------|-----------|
-| 🟢 LOW | 0.00 ~ 0.29 | approve (자동 승인) |
-| 🟡 MEDIUM | 0.30 ~ 0.59 | monitor (모니터링) |
-| 🔴 HIGH | 0.60 ~ 0.84 | hold (보류 후 심사) |
-| 🚨 CRITICAL | 0.85 ~ 1.00 | remove (즉시 삭제) |
+| LOW | 0.00 ~ 0.29 | approve (자동 승인) |
+| MEDIUM | 0.30 ~ 0.59 | monitor (모니터링) |
+| HIGH | 0.60 ~ 0.84 | hold (보류 후 심사) |
+| CRITICAL | 0.85 ~ 1.00 | remove (즉시 삭제) |
 
-## 콘텐츠 상태 흐름
+## 3단계 하이브리드 텍스트 추출
+
+웹 크롤링 시 댓글·리뷰를 정확하게 추출하기 위해 3단계로 시도합니다.
 
 ```
-분석 요청
-    │
-    ▼
-PENDING (AI 분석 완료, 심사 대기)
-    │
-    ├── 승인 → APPROVED
-    ├── 삭제 → REMOVED
-    ├── 보류 → HELD
-    └── 모니터링 → MONITORED
+1차: BeautifulSoup
+     comment / review / reply / feedback 등 CSS 클래스·ID 패턴 탐지
+     → 결과 있으면 반환 (가장 빠르고 정확)
 
-* 심사 완료 후에도 이력 페이지에서 판단 재변경 가능
+2차: Trafilatura
+     범용 본문 추출 후 품질 검사 통과 시 반환
+
+3차: LLM 폴백
+     마크다운 원문을 LLM에 전달해 사용자 작성 텍스트만 추출
 ```
 
 ## 시작하기
 
 ### 사전 요구사항
 
-- Docker Desktop
-- Ollama (Windows에서 실행, `qwen3.5:9b` 모델 필요)
-- WSL2 (로컬 개발 환경)
+- Docker (WSL 기반 권장)
+- Ollama (Windows에서 실행, `qwen3.5:9b` 모델 권장)
 
 ### Docker로 실행 (권장)
 
 ```bash
 cp .env.example .env
-# .env에서 ADMIN_SECRET, FIRECRAWL_API_KEY 등 설정
+# .env에서 필수 값 설정 (아래 환경변수 참고)
 
 docker compose up -d --build
 ```
 
 | 서비스 | 주소 |
-|---|---|
+|--------|------|
 | API | http://localhost:8000 |
 | API 문서 | http://localhost:8000/docs |
 | 대시보드 | http://localhost:3000 |
 | pgAdmin | http://localhost:5051 |
+| 웹훅 데모 수신 서버 | http://localhost:9000 |
 
-백엔드 시작 시 `alembic upgrade head`가 자동 실행됩니다.
+백엔드 시작 시 `alembic upgrade head`가 자동 실행되고, `OPERATOR_EMAIL` / `OPERATOR_PASSWORD`로 초기 운영자 계정이 자동 생성됩니다.
+
+#### Docker 재빌드
+
+```bash
+# 백엔드 코드 변경 시
+docker compose up -d --build backend
+
+# 대시보드 코드·환경변수 변경 시
+docker compose up -d --build dashboard
+```
 
 #### Docker 네트워크 구조
-
-컨테이너끼리는 서비스 이름으로 통신하고, 브라우저에서는 `localhost`로 접근합니다.
 
 ```
 [브라우저] → localhost:3000 → [dashboard 컨테이너]
@@ -199,19 +276,12 @@ docker compose up -d --build
                                backend:8000 → [backend 컨테이너]
                                                     ↓
                                              db:5432 → [db 컨테이너]
+
+[backend 컨테이너] → demo-receiver:9000 → [demo-receiver 컨테이너]
+                     (심사 완료 시 웹훅 발송)
 ```
 
-대시보드는 Next.js rewrites를 사용해 `/api/*` 요청을 내부적으로 백엔드로 프록시합니다.  
-브라우저가 백엔드를 직접 호출하지 않으므로 CORS 문제가 없습니다.
-
-#### NEXT_PUBLIC_ADMIN_SECRET 주의사항
-
-`NEXT_PUBLIC_ADMIN_SECRET`은 Next.js 빌드 시점에 코드에 구워집니다.  
-`.env`의 `ADMIN_SECRET` 값이 바뀌면 반드시 재빌드해야 합니다.
-
-```bash
-docker compose up -d --build dashboard
-```
+대시보드는 `/api/*`, `/admin/*`, `/auth/*` 요청을 모두 백엔드로 프록시합니다.
 
 ---
 
@@ -223,28 +293,146 @@ docker compose up -d --build dashboard
 cp .env.example .env
 ```
 
-`.env` 예시 (로컬 Ollama):
-```
+`.env` 필수 설정:
+
+```env
 DATABASE_URL=postgresql+psycopg2://admin:admin@localhost:5434/contentguard_db
-ADMIN_SECRET=your-secret-here
-ALLOWED_ORIGINS=http://localhost:3000
 
+# JWT
+JWT_SECRET_KEY=랜덤하고-충분히-긴-문자열  # openssl rand -hex 32
+OPERATOR_EMAIL=admin@example.com
+OPERATOR_PASSWORD=your-password
+
+# LLM (필수)
 LLM_PROVIDER_EXTRACT=ollama
-LLM_MODEL_EXTRACT=qwen2.5:7b
-
 LLM_PROVIDER_EXPLAIN=ollama
-LLM_MODEL_EXPLAIN=qwen2.5:3b
-
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
 
+# 기타
+FIRECRAWL_API_KEY=fc-xxxxxxxx
 MODEL_PRIMARY=logistic_regression
 DECISION_POLICY=primary_only
-FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
+
+# 웹훅 데모 (어드민 페이지에서 발급 후 입력)
+DEMO_CLIENT_API_KEY=cg-xxxxxxxx
 ```
 
-추출·설명 각각 다른 프로바이더를 쓸 수도 있습니다:
+#### 2. 패키지 설치 및 실행
+
+```bash
+# 백엔드 (WSL)
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cd backend && alembic upgrade head
+uvicorn main:app --reload --port 8000
+
+# 프론트엔드
+cd dashboard && npm install && npm run dev
 ```
+
+#### 3. 테스트
+
+```bash
+pytest
+# 189개 테스트 (통합 + 유닛)
+```
+
+## 환경변수 전체 목록
+
+| 변수 | 필수 | 설명 |
+|------|------|------|
+| `DATABASE_URL` | ✅ | PostgreSQL 연결 문자열 |
+| `JWT_SECRET_KEY` | ✅ | JWT 서명 키 (충분히 긴 랜덤 문자열) |
+| `JWT_EXPIRE_MINUTES` | | JWT 만료 시간 (기본 1440 = 24시간) |
+| `OPERATOR_EMAIL` | | 초기 운영자 이메일 (최초 실행 시 자동 생성) |
+| `OPERATOR_PASSWORD` | | 초기 운영자 비밀번호 |
+| `LLM_PROVIDER_EXTRACT` | ✅ | 텍스트 추출용 LLM 프로바이더 |
+| `LLM_MODEL_EXTRACT` | | 추출 모델명 (미설정 시 프로바이더 기본값) |
+| `LLM_PROVIDER_EXPLAIN` | ✅ | 설명 생성용 LLM 프로바이더 |
+| `LLM_MODEL_EXPLAIN` | | 설명 모델명 (미설정 시 프로바이더 기본값) |
+| `OLLAMA_BASE_URL` | | Ollama 서버 주소 |
+| `OLLAMA_MODEL` | | Ollama 기본 모델명 |
+| `OPENAI_API_KEY` | | OpenAI 사용 시 |
+| `ANTHROPIC_API_KEY` | | Anthropic 사용 시 |
+| `GEMINI_API_KEY` | | Gemini 사용 시 |
+| `DEEPSEEK_API_KEY` | | DeepSeek 사용 시 |
+| `FIRECRAWL_API_KEY` | | 웹 크롤링 기능 사용 시 |
+| `MODEL_PRIMARY` | | primary 모델명 (기본 `logistic_regression`) |
+| `DECISION_POLICY` | | 판단 정책 (기본 `primary_only`) |
+| `ALLOWED_ORIGINS` | | CORS 허용 도메인 (기본 `http://localhost:3000`) |
+| `ADMIN_SECRET` | | 레거시 운영자 인증 (하위 호환용) |
+| `DEMO_CLIENT_API_KEY` | | 웹훅 데모용 클라이언트 API 키 |
+
+## API 엔드포인트
+
+### 인증
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/auth/signup` | 클라이언트 회원가입 → JWT |
+| POST | `/auth/login` | 클라이언트 로그인 → JWT |
+| POST | `/auth/operator/login` | 운영자 로그인 → JWT |
+| GET | `/auth/me` | 내 계정 정보 |
+| GET | `/auth/keys` | 내 API 키 목록 (클라이언트 JWT) |
+| POST | `/auth/keys` | API 키 발급 (클라이언트 JWT) |
+| DELETE | `/auth/keys/{id}` | API 키 비활성화 (클라이언트 JWT) |
+
+### 클라이언트 (API 키 인증)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/analyze` | 콘텐츠 위험도 분석 (60회/시간) |
+| GET | `/api/contents/{id}/status` | 내 콘텐츠 심사 상태 조회 |
+| POST | `/api/upload` | 파일 일괄 업로드·분석 |
+| POST | `/api/crawl` | URL 크롤링·분석 SSE 스트리밍 |
+
+### 운영자 전용 (operator JWT)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/api/contents` | 콘텐츠 목록 (페이지네이션·검색·필터) |
+| GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
+| GET | `/api/contents/{id}/predictions` | 모델별 예측 결과 |
+| POST | `/api/reviews/{id}` | 심사 결과 제출 → 웹훅 자동 발송 |
+| GET | `/api/active-learning/candidates` | 재학습 후보 조회 |
+| POST | `/admin/clients` | 클라이언트 생성 |
+| GET | `/admin/clients` | 클라이언트 목록 |
+| PATCH | `/admin/clients/{id}/webhook` | 클라이언트 웹훅 URL 등록·수정 |
+| POST | `/admin/clients/{id}/keys` | API 키 발급 |
+| DELETE | `/admin/keys/{id}` | API 키 비활성화 |
+| GET | `/admin/operators` | 운영자 목록 |
+
+> **API 키 인증**: `Authorization: Bearer <api_key>` 헤더
+> **JWT 인증**: `Authorization: Bearer <jwt_token>` 헤더
+
+## 대시보드 페이지
+
+| 페이지 | 역할 | 기능 |
+|--------|------|------|
+| `/login` | 공통 | 운영자·클라이언트 로그인 |
+| `/signup` | 클라이언트 | 회원가입 (이메일+비밀번호) |
+| `/my-keys` | 클라이언트 | API 키 발급·목록·삭제, 로그아웃 |
+| `/` | 운영자 | 전체 통계, 위험 등급 분포 차트, 30초 자동 새로고침 |
+| `/queue` | 운영자 | 심사 큐 (검색·필터·페이지네이션·운영자 판단) |
+| `/analyze` | 운영자 | 텍스트 직접 입력 후 즉시 AI 분석 |
+| `/history` | 운영자 | 전체 이력 (검색·필터·심사 재변경) |
+| `/collect` | 운영자 | API 연동 가이드·파일 업로드·웹 크롤링 |
+| `/admin` | 운영자 | 클라이언트 관리, API 키 발급, 웹훅 URL 등록 |
+
+## LLM 프로바이더 설정
+
+| 프로바이더 | 값 | 필요한 환경변수 | 기본 모델 |
+|-----------|-----|----------------|----------|
+| Ollama (로컬) | `ollama` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `OLLAMA_MODEL` 값 |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+
+추출·설명을 서로 다른 프로바이더로 설정할 수 있습니다:
+
+```env
 # 텍스트 추출: 로컬 Ollama (비용 절감)
 LLM_PROVIDER_EXTRACT=ollama
 LLM_MODEL_EXTRACT=qwen2.5:7b
@@ -255,161 +443,13 @@ LLM_MODEL_EXPLAIN=claude-haiku-4-5-20251001
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
 ```
 
-> WSL에서 Windows Ollama에 접근할 때는 `ip route | grep default`로 게이트웨이 IP를 확인하여 `OLLAMA_BASE_URL`에 사용하세요.
-
-#### 2. 패키지 설치
-
-```bash
-# 백엔드 (WSL)
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 프론트엔드
-cd dashboard && npm install
-```
-
-#### 3. PostgreSQL 실행
-
-```bash
-docker-compose up -d db
-```
-
-#### 4. ML 모델 학습
-
-```bash
-python scripts/train.py
-```
-
-#### 5. DB 마이그레이션 및 백엔드 실행
-
-```bash
-cd backend
-alembic upgrade head
-uvicorn main:app --reload --port 8000
-```
-
-#### 6. 대시보드 실행
-
-```bash
-cd dashboard && npm run dev
-```
-
-### 8. 테스트 데이터 주입 (선택)
-
-대시보드에 표시할 샘플 데이터가 없을 때 실행합니다. 백엔드가 실행 중이어야 합니다.
-
-```bash
-# WSL (contentguard_ai/ 루트에서)
-python scripts/seed_data.py
-
-# 백엔드가 다른 주소에서 실행 중인 경우
-python scripts/seed_data.py --url http://0.0.0.0:8000
-```
-
-LOW / MEDIUM / HIGH / CRITICAL 각 5건씩 총 20건이 DB에 저장됩니다.
-
-### 9. 시연용 크롤링 파이프라인 (선택)
-
-외부 웹페이지를 실시간으로 크롤링해 ContentGuard에 분석을 요청하는 시연 스크립트입니다.
-`.env`에 `FIRECRAWL_API_KEY`가 설정되어 있어야 합니다.
-
-```bash
-# WSL (contentguard_ai/ 루트에서)
-python scripts/demo_crawl.py --url "https://크롤링할페이지URL"
-
-# 옵션
-python scripts/demo_crawl.py \
-  --url "https://..." \
-  --max 20 \        # 최대 추출 건수 (기본 20)
-  --delay 0.5       # 요청 간격 초 (기본 0.5)
-```
-
-**동작 흐름**: Firecrawl로 페이지 수집 → LLM(`LLM_PROVIDER_EXTRACT`)으로 사용자 작성 텍스트 추출 → `POST /api/analyze` 자동 전송 → 대시보드 실시간 표시
-
-## API 엔드포인트
-
-| 메서드 | 경로 | 인증 | 설명 |
-|--------|------|------|------|
-| GET | `/health` | 없음 | DB·Ollama 포함 의존성 상태 확인 |
-| POST | `/register` | 없음 | API 키 자가 발급 (IP당 5회/시간) |
-| POST | `/api/analyze` | API 키 | 콘텐츠 위험도 분석 (IP당 60회/시간) |
-| POST | `/api/upload` | API 키 | 파일 일괄 업로드·분석 CSV/Excel/JSON/TXT (IP당 20회/시간) |
-| POST | `/api/crawl` | API 키 | URL 크롤링·분석 SSE 스트리밍 (IP당 10회/시간) |
-| GET | `/api/contents` | 운영자 | 콘텐츠 목록 조회 (페이지네이션·검색·필터) |
-| GET | `/api/contents/{id}` | 운영자 | 콘텐츠 단건 조회 |
-| GET | `/api/contents/{id}/predictions` | 운영자 | 모델별 예측 결과 조회 |
-| POST | `/api/reviews/{id}` | 운영자 | 심사 결과 제출 (재변경 포함) |
-| GET | `/api/active-learning/candidates` | 운영자 | 재학습 후보 데이터 조회 |
-| POST | `/admin/clients` | 운영자 | 클라이언트 생성 |
-| GET | `/admin/clients` | 운영자 | 클라이언트 목록 |
-| POST | `/admin/clients/{id}/keys` | 운영자 | API 키 발급 |
-| GET | `/admin/clients/{id}/keys` | 운영자 | API 키 목록 |
-| DELETE | `/admin/keys/{key_id}` | 운영자 | API 키 비활성화 |
-
-> **API 키 인증**: `Authorization: Bearer <key>` 헤더 — 외부 서비스 연동용  
-> **운영자 인증**: `X-Admin-Secret: <secret>` 헤더 — 대시보드 전용  
-> 두 인증 방식 모두 허용하는 엔드포인트(`/api/analyze`, `/api/upload`, `/api/crawl`)는 어느 쪽 헤더를 보내도 동작합니다.
-
-### GET /api/contents 쿼리 파라미터
-
-| 파라미터 | 타입 | 기본값 | 설명 |
-|----------|------|--------|------|
-| `status` | string | - | 심사 상태 필터 (PENDING / APPROVED / REMOVED / HELD / MONITORED) |
-| `risk_level` | string | - | 위험 등급 필터 (LOW / MEDIUM / HIGH / CRITICAL) |
-| `sort_by` | string | created_at | 정렬 기준 (`risk_score` 또는 `created_at`) |
-| `search` | string | - | 텍스트·content_id 부분 검색 (대소문자 무시) |
-| `limit` | int | 20 | 페이지 크기 (1~200) |
-| `offset` | int | 0 | 페이지 오프셋 |
-
-응답 헤더 `X-Total-Count`에 필터 적용 후 전체 건수가 포함됩니다.
-
-```bash
-# 위험도 높은 순으로 PENDING 콘텐츠 2페이지 조회
-GET /api/contents?status=PENDING&sort_by=risk_score&limit=20&offset=20
-
-# "사기" 텍스트 검색
-GET /api/contents?search=사기
-
-# CRITICAL 등급 필터
-GET /api/contents?risk_level=CRITICAL
-
-# 모델-운영자 불일치 건만 조회 (재학습 후보)
-GET /api/active-learning/candidates?disagreement_only=true
-```
-
-## 대시보드 페이지
-
-| 페이지 | 기능 |
-|--------|------|
-| 대시보드 | 전체 통계(병렬 카운트 조회), 위험 등급 분포 차트, 최근 분석 내역 5건, 30초 자동 새로고침 |
-| 심사 큐 | 검색, 위험도순 정렬, 등급 필터, 페이지 크기 선택, 페이지네이션, 모델별 예측 상세, 운영자 판단, 30초 자동 새로고침 |
-| 콘텐츠 분석 | 텍스트 직접 입력 후 즉시 AI 분석, 모델별 예측 결과 표시 |
-| 전체 이력 | 검색, 상태별 필터, 페이지 크기 선택, 페이지네이션, AI 설명·운영자 메모 조회, 심사 결과 재변경 |
-| CSV 업로드 | CSV 드래그&드롭 업로드, 미리보기, 일괄 분석, 저장/중복/오류 결과 표시 |
-| 데이터 수집 | API 연동 코드 예시, 파일 업로드, 웹 크롤링 탭으로 구성된 통합 데이터 수집 페이지 |
-
-## 헬스체크
-
-```bash
-curl http://localhost:8000/health
-```
-
-```json
-// 모두 정상
-{ "status": "ok", "db": "ok", "ollama": "ok" }
-
-// Ollama 장애 시
-{ "status": "degraded", "db": "ok", "ollama": "error: ..." }
-```
-
 ## DB 마이그레이션
 
 ```bash
 cd backend
 
 # 모델 변경 후 마이그레이션 파일 자동 생성
-alembic revision --autogenerate -m "add category to contents"
+alembic revision --autogenerate -m "설명"
 
 # 적용
 alembic upgrade head
@@ -418,70 +458,20 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-## 테스트
+현재 마이그레이션 이력:
+1. `fcd865a7cc83` — 초기 스키마 (clients, api_keys, contents, model_predictions)
+2. `a3f192c8d041` — 인증 모델 추가 (clients.email/password_hash, operators 테이블)
+3. `b7e4d1f9a023` — 웹훅 추가 (clients.webhook_url)
+
+## Active Learning
 
 ```bash
-# WSL 환경에서 실행
-cd backend
-python -m pytest tests/ -v
-```
-
-185개 테스트 (통합 + 유닛). 테스트 환경에서는 Rate Limit이 자동 비활성화됩니다.
-
-## GitHub에서 다른 PC로 배포
-
-```bash
-git clone https://github.com/your-id/contentguard_ai.git
-cd contentguard_ai
-
-cp .env.example .env
-# .env 값 채우기
-
-docker compose up -d --build
-```
-
-`docker-compose.yml`과 코드만 있으면 어느 PC에서도 동일하게 실행됩니다.  
-단, `.env`는 Git에 포함되지 않으므로 각 PC에서 직접 작성해야 합니다.
-
-## LLM 프로바이더 설정
-
-텍스트 추출과 설명 생성을 **작업별로 독립**적으로 설정합니다. 두 값 모두 필수이며, 변경 후 `docker compose restart backend`를 실행하면 됩니다.
-
-| 환경변수 | 역할 | 권장 모델 규모 |
-|---------|------|--------------|
-| `LLM_PROVIDER_EXTRACT` | 크롤링 마크다운 → 사용자 텍스트 추출 | 7B~8B (JSON 출력 신뢰도) |
-| `LLM_MODEL_EXTRACT` | 추출 작업 모델명 (미설정 시 프로바이더 기본값) | |
-| `LLM_PROVIDER_EXPLAIN` | 위험도 판단 근거 한국어 설명 생성 | 3B~4B로 충분 |
-| `LLM_MODEL_EXPLAIN` | 설명 작업 모델명 (미설정 시 프로바이더 기본값) | |
-
-### 지원 프로바이더
-
-| 프로바이더 | 값 | 필요한 환경변수 | 기본 모델 |
-|-----------|-----|----------------|----------|
-| Ollama (로컬) | `ollama` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `OLLAMA_MODEL` 값 |
-| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
-| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` |
-| Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
-| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-
-> **클라우드 배포 시 권장**: Ollama 대신 OpenAI 또는 Anthropic을 사용하면 서버 사양 요구사항이 크게 낮아집니다.
-
-## Active Learning (모델 재학습)
-
-운영자 심사 결과를 모델 재학습에 활용하는 워크플로우입니다.
-
-```bash
-# 1. 불일치 후보 내보내기
+# 불일치 후보 내보내기
 python scripts/export_active_learning.py
 
-# 전체 심사 완료 건 포함 시
-python scripts/export_active_learning.py --all
-
-# 2. 모델 재학습
+# 모델 재학습
 python scripts/train.py
 ```
-
-불일치 건의 재학습 점수는 운영자 결정 기준으로 자동 산출됩니다:
 
 | 운영자 결정 | 재학습 점수 |
 |------------|------------|
@@ -490,36 +480,9 @@ python scripts/train.py
 | hold | 0.72 (HIGH) |
 | remove | 0.92 (CRITICAL) |
 
-## 새 모델 추가 방법
+## 헬스체크
 
-### 1. `scripts/train.py` — Trainer 클래스 작성 후 등록
-
-```python
-class NewModelTrainer(BaseTrainer):
-    model_name = "New Model"
-    save_file  = "new_model.pkl"
-
-    def fit(self, X_train, y_train_score, y_train_level): ...
-    def evaluate(self, X_test, y_test_score, y_test_level): ...
-
-TRAINERS = [
-    RidgeTrainer(),
-    LinearSVMTrainer(),
-    LogisticRegressionTrainer(),
-    NewModelTrainer(),   # ← 추가
-]
-```
-
-### 2. `backend/services/prediction_service.py` — Model 클래스 작성 후 등록
-
-```python
-class NewModel(BaseMLModel):
-    name = "new_model"
-    version = "v1.0.0"
-    model_type = "..."
-    is_primary = False
-
-    def predict(self, text: str) -> dict: ...
-
-prediction_service.register(NewModel())
+```bash
+curl http://localhost:8000/health
+# {"status": "ok", "db": "ok", "ollama": "ok"}
 ```
