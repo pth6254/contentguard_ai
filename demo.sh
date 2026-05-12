@@ -62,6 +62,33 @@ TEXTS=(
 IDX=$(( RANDOM % ${#TEXTS[@]} ))
 SAMPLE_TEXT="${TEXTS[$IDX]}"
 
+# JSON 내 UTC 타임스탬프를 KST(+09:00)로 변환해서 출력
+pretty_kst() {
+  python3 - <<'EOF'
+import sys, json, re
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
+ISO_RE = re.compile(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))')
+
+def to_kst(m):
+    s = m.group(1).replace('Z', '+00:00')
+    try:
+        dt = datetime.fromisoformat(s).astimezone(KST)
+        return dt.strftime('%Y-%m-%d %H:%M:%S KST')
+    except Exception:
+        return m.group(1)
+
+raw = sys.stdin.read()
+try:
+    obj = json.loads(raw)
+    pretty = json.dumps(obj, ensure_ascii=False, indent=2)
+except Exception:
+    pretty = raw
+print(ISO_RE.sub(to_kst, pretty))
+EOF
+}
+
 echo "======================================"
 echo " ContentGuard AI — 웹훅 데모"
 echo "======================================"
@@ -76,7 +103,7 @@ RESULT=$(curl -s -X POST "$BASE_URL/api/analyze" \
   -H "Authorization: Bearer $DEMO_CLIENT_API_KEY" \
   -d "{\"content_id\": \"$CONTENT_ID\", \"text\": \"$SAMPLE_TEXT\"}")
 
-echo "$RESULT" | python3 -m json.tool
+echo "$RESULT" | pretty_kst
 echo ""
 
 RISK_LEVEL=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['risk_level'])" 2>/dev/null || echo "?")
@@ -92,7 +119,7 @@ echo ""
 
 # 3. 웹훅 수신 확인
 echo "[3/3] 웹훅 수신 로그 확인"
-curl -s "$RECEIVER_URL/logs" | python3 -m json.tool
+curl -s "$RECEIVER_URL/logs" | pretty_kst
 echo ""
 echo "======================================"
 echo " 데모 완료"
