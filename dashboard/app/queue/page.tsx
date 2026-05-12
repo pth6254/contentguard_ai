@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { api, type Content, type ModelPrediction, type RiskLevel } from "@/lib/api"
+import { toKSTDateTime } from "@/lib/utils"
 import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
 
@@ -206,7 +207,7 @@ export default function QueuePage() {
                     <div className="flex items-center gap-2">
                       <Badge variant={item.risk_level}>{item.risk_level}</Badge>
                       <span className="text-xs text-slate-500 font-mono">{item.content_id}</span>
-                      <span className="text-xs text-slate-500">{item.created_at.slice(0, 16)}</span>
+                      <span className="text-xs text-slate-500">{toKSTDateTime(item.created_at)}</span>
                     </div>
                     <p className="text-sm text-slate-200">{item.text}</p>
                     {item.explanation && (

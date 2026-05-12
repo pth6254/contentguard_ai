@@ -138,6 +138,30 @@ class TestGetContentById:
         assert "GHOST123" in response.json()["detail"]
 
 
+class TestDeleteContent:
+    def test_delete_returns_204(self, analyzed_content, client):
+        response = client.delete("/api/contents/TEST001")
+        assert response.status_code == 204
+
+    def test_deleted_content_not_found(self, analyzed_content, client):
+        client.delete("/api/contents/TEST001")
+        response = client.get("/api/contents/TEST001")
+        assert response.status_code == 404
+
+    def test_delete_nonexistent_returns_404(self, client):
+        response = client.delete("/api/contents/NONEXISTENT")
+        assert response.status_code == 404
+
+    def test_delete_removes_from_list(self, analyzed_content, client):
+        client.delete("/api/contents/TEST001")
+        items = client.get("/api/contents").json()
+        assert all(i["content_id"] != "TEST001" for i in items)
+
+    def test_delete_requires_auth(self, unauth_client):
+        response = unauth_client.delete("/api/contents/TEST001")
+        assert response.status_code == 401
+
+
 class TestGetPredictions:
     def test_returns_predictions_list(self, analyzed_content, client):
         response = client.get("/api/contents/TEST001/predictions")

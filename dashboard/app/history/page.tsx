@@ -1,11 +1,12 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { ChevronDown, ChevronUp, Search, X } from "lucide-react"
+import { ChevronDown, ChevronUp, Search, Trash2, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogTrigger } from "@/components/ui/dialog"
 import { api, type Content, type ReviewStatus } from "@/lib/api"
+import { toKSTDate } from "@/lib/utils"
 import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
 
@@ -20,6 +21,20 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 
 function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) {
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm(`'${item.content_id}' 를 삭제하시겠습니까?`)) return
+    setDeleting(true)
+    try {
+      await api.deleteContent(item.content_id)
+      onReload()
+    } catch {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="border-b border-slate-700 last:border-0">
       <div
@@ -31,7 +46,7 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
         <p className="flex-1 text-sm text-slate-300 truncate">{item.text}</p>
         <span className="font-mono text-sm text-slate-400">{item.risk_score.toFixed(2)}</span>
         <Badge variant={item.review_status as ReviewStatus}>{item.review_status}</Badge>
-        <span className="text-xs text-slate-600">{item.created_at.slice(0, 10)}</span>
+        <span className="text-xs text-slate-600">{toKSTDate(item.created_at)}</span>
         <Dialog>
           <DialogTrigger asChild onClick={e => e.stopPropagation()}>
             <Button size="sm" variant="ghost" className="text-xs text-slate-400 hover:text-slate-100 h-7 px-2">
@@ -40,6 +55,13 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
           </DialogTrigger>
           <ReviewDialog content={item} onDone={onReload} />
         </Dialog>
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
         {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
       </div>
       {open && (

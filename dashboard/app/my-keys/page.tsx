@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { api, ApiKey, ApiKeyCreated } from "@/lib/api"
+import { toKSTDate } from "@/lib/utils"
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -141,7 +142,7 @@ export default function MyKeysPage() {
                     : <span className="text-xs text-slate-600">비활성</span>}
                   {k.last_used_at && (
                     <span className="text-xs text-slate-600">
-                      최근 사용: {k.last_used_at.slice(0, 10)}
+                      최근 사용: {toKSTDate(k.last_used_at)}
                     </span>
                   )}
                   {k.is_active && (

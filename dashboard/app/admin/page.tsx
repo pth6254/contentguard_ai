@@ -1,11 +1,12 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle, Webhook, CheckCircle2 } from "lucide-react"
+import { Plus, Trash2, Copy, Check, KeyRound, AlertCircle, Webhook, CheckCircle2, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getToken } from "@/lib/auth"
+import { toKSTDate } from "@/lib/utils"
 
 interface Client  { id: number; name: string; webhook_url: string | null; created_at: string }
 interface ApiKey  { id: number; client_id: number; name: string; key_prefix: string; is_active: boolean; created_at: string; last_used_at: string | null }
@@ -122,13 +123,15 @@ function WebhookSection({ client, onUpdate }: { client: Client; onUpdate: () => 
 }
 
 export default function AdminPage() {
-  const [clients, setClients]       = useState<Client[]>([])
-  const [keys, setKeys]             = useState<Record<number, ApiKey[]>>({})
-  const [newClient, setNewClient]   = useState("")
-  const [newKeyName, setNewKeyName] = useState<Record<number, string>>({})
-  const [issuedKey, setIssuedKey]   = useState<NewKey | null>(null)
-  const [error, setError]           = useState<string | null>(null)
-  const [loading, setLoading]       = useState(true)
+  const [clients, setClients]         = useState<Client[]>([])
+  const [keys, setKeys]               = useState<Record<number, ApiKey[]>>({})
+  const [newClient, setNewClient]     = useState("")
+  const [newKeyName, setNewKeyName]   = useState<Record<number, string>>({})
+  const [issuedKey, setIssuedKey]     = useState<NewKey | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+  const [loading, setLoading]         = useState(true)
+  const [editingClient, setEditingClient] = useState<number | null>(null)
+  const [editName, setEditName]       = useState<Record<number, string>>({})
 
   const loadClients = async () => {
     try {
@@ -169,6 +172,25 @@ export default function AdminPage() {
   const revokeKey = async (keyId: number) => {
     try {
       await adminFetch(`/admin/keys/${keyId}`, { method: "DELETE" })
+      setError(null); loadClients()
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)) }
+  }
+
+  const updateClient = async (clientId: number) => {
+    const name = (editName[clientId] || "").trim()
+    if (!name) return
+    try {
+      await adminFetch(`/admin/clients/${clientId}`, {
+        method: "PATCH", body: JSON.stringify({ name }),
+      })
+      setEditingClient(null); setError(null); loadClients()
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)) }
+  }
+
+  const deleteClient = async (clientId: number, clientName: string) => {
+    if (!confirm(`'${clientName}' 클라이언트를 삭제하시겠습니까?\n발급된 API 키도 모두 삭제됩니다.`)) return
+    try {
+      await adminFetch(`/admin/clients/${clientId}`, { method: "DELETE" })
       setError(null); loadClients()
     } catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)) }
   }
@@ -224,9 +246,40 @@ export default function AdminPage() {
           <Card key={client.id}>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                {client.name}
-                <span className="text-xs text-slate-500 font-normal">ID: {client.id}</span>
-                <span className="text-xs text-slate-600 font-normal ml-auto">{client.created_at.slice(0, 10)}</span>
+                {editingClient === client.id ? (
+                  <>
+                    <Input
+                      value={editName[client.id] ?? client.name}
+                      onChange={e => setEditName(prev => ({ ...prev, [client.id]: e.target.value }))}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") updateClient(client.id)
+                        if (e.key === "Escape") setEditingClient(null)
+                      }}
+                      className="h-7 text-sm flex-1"
+                      autoFocus
+                    />
+                    <Button size="sm" className="h-7 text-xs" onClick={() => updateClient(client.id)}>저장</Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingClient(null)}>취소</Button>
+                  </>
+                ) : (
+                  <>
+                    {client.name}
+                    <span className="text-xs text-slate-500 font-normal">ID: {client.id}</span>
+                    <span className="text-xs text-slate-600 font-normal ml-auto">{toKSTDate(client.created_at)}</span>
+                    <button
+                      onClick={() => { setEditingClient(client.id); setEditName(prev => ({ ...prev, [client.id]: client.name })) }}
+                      className="text-slate-500 hover:text-slate-200 transition-colors"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteClient(client.id, client.name)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -241,7 +294,7 @@ export default function AdminPage() {
                       {k.is_active
                         ? <Badge variant="LOW" className="text-xs">활성</Badge>
                         : <span className="text-xs text-slate-600">비활성</span>}
-                      {k.last_used_at && <span className="text-xs text-slate-600">최근 사용: {k.last_used_at.slice(0, 10)}</span>}
+                      {k.last_used_at && <span className="text-xs text-slate-600">최근 사용: {toKSTDate(k.last_used_at)}</span>}
                       {k.is_active && (
                         <button onClick={() => revokeKey(k.id)} className="text-slate-500 hover:text-red-400 transition-colors">
                           <Trash2 className="h-3.5 w-3.5" />

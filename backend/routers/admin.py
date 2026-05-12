@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_operator
 from database import get_db
 from models import ApiKey, Client, Operator
-from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse, WebhookUrlUpdate
+from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse, ClientUpdate, WebhookUrlUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,32 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db)):
             dependencies=[Depends(get_current_operator)])
 def list_clients(db: Session = Depends(get_db)):
     return db.query(Client).order_by(Client.created_at.desc()).all()
+
+
+@router.patch("/clients/{client_id}", response_model=ClientResponse,
+              dependencies=[Depends(get_current_operator)])
+def update_client(client_id: int, body: ClientUpdate, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
+    if db.query(Client).filter(Client.name == body.name, Client.id != client_id).first():
+        raise HTTPException(status_code=400, detail=f"이름 '{body.name}' 은 이미 사용 중입니다.")
+    client.name = body.name
+    db.commit()
+    db.refresh(client)
+    logger.info("클라이언트 이름 변경: id=%d name=%s", client_id, body.name)
+    return client
+
+
+@router.delete("/clients/{client_id}", status_code=204,
+               dependencies=[Depends(get_current_operator)])
+def delete_client(client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
+    db.delete(client)
+    db.commit()
+    logger.info("클라이언트 삭제: id=%d name=%s", client_id, client.name)
 
 
 @router.patch("/clients/{client_id}/webhook", response_model=ClientResponse,

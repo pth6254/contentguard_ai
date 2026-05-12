@@ -48,6 +48,10 @@ class WebhookUrlUpdate(BaseModel):
     webhook_url: Optional[str] = Field(None, example="https://your-service.com/webhook")
 
 
+class ClientUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, example="쇼핑몰B")
+
+
 class ApiKeyCreate(BaseModel):
     name: str = Field(..., example="production-key")
 

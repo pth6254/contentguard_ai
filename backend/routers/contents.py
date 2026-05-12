@@ -69,3 +69,17 @@ def get_content(content_id: str, db: Session = Depends(get_db)):
             detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
         )
     return record
+
+
+@router.delete("/contents/{content_id}", status_code=204)
+def delete_content(content_id: str, db: Session = Depends(get_db)):
+    record = db.query(Content).filter(Content.content_id == content_id).first()
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
+        )
+    db.query(ModelPrediction).filter(ModelPrediction.content_id == content_id).delete()
+    db.delete(record)
+    db.commit()
+    logger.info("콘텐츠 삭제: content_id=%s", content_id)

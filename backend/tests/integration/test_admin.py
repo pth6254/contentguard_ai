@@ -85,3 +85,39 @@ class TestAdminApiKeys:
     def test_revoke_nonexistent_key_returns_404(self, client):
         response = client.delete("/admin/keys/99999")
         assert response.status_code == 404
+
+
+class TestAdminClientUpdate:
+    def _create_client(self, client):
+        return client.post("/admin/clients", json={"name": "쇼핑몰A"}).json()
+
+    def test_update_name_returns_200(self, client):
+        c = self._create_client(client)
+        response = client.patch(f"/admin/clients/{c['id']}", json={"name": "쇼핑몰B"})
+        assert response.status_code == 200
+        assert response.json()["name"] == "쇼핑몰B"
+
+    def test_update_nonexistent_client_returns_404(self, client):
+        response = client.patch("/admin/clients/99999", json={"name": "새이름"})
+        assert response.status_code == 404
+
+    def test_update_duplicate_name_returns_400(self, client):
+        client.post("/admin/clients", json={"name": "쇼핑몰A"})
+        c2 = client.post("/admin/clients", json={"name": "쇼핑몰B"}).json()
+        response = client.patch(f"/admin/clients/{c2['id']}", json={"name": "쇼핑몰A"})
+        assert response.status_code == 400
+
+    def test_delete_client_returns_204(self, client):
+        c = self._create_client(client)
+        response = client.delete(f"/admin/clients/{c['id']}")
+        assert response.status_code == 204
+
+    def test_deleted_client_not_in_list(self, client):
+        c = self._create_client(client)
+        client.delete(f"/admin/clients/{c['id']}")
+        names = [x["name"] for x in client.get("/admin/clients").json()]
+        assert "쇼핑몰A" not in names
+
+    def test_delete_nonexistent_client_returns_404(self, client):
+        response = client.delete("/admin/clients/99999")
+        assert response.status_code == 404
