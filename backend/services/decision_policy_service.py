@@ -4,7 +4,6 @@ ML 보정 점수에 규칙 기반 강제 승격을 적용해 final_score / final
 LLM은 이 결과를 변경할 수 없다.
 """
 import logging
-from services.risk_service import classify_risk_level, get_recommended_action
 from services.rule_detector import TriggeredRule
 
 logger = logging.getLogger(__name__)
@@ -14,6 +13,20 @@ _GRADE_MIN_SCORE = {
     "LOW": 0.00, "MEDIUM": 0.30,
     "HIGH": 0.60, "CRITICAL": 0.85,
 }
+
+
+def classify_risk_level(score: float) -> str:
+    if score >= 0.85:
+        return "CRITICAL"
+    if score >= 0.60:
+        return "HIGH"
+    if score >= 0.30:
+        return "MEDIUM"
+    return "LOW"
+
+
+def get_recommended_action(risk_level: str) -> str:
+    return {"LOW": "APPROVE", "MEDIUM": "MONITOR", "HIGH": "REVIEW", "CRITICAL": "HOLD"}[risk_level]
 
 
 def apply_forced_escalation(

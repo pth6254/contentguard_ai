@@ -52,6 +52,7 @@ def review_context(
     반환: (modifier: -0.30 ~ 0.00, note: str)
     실패 시 (0.0, "") 반환 — 점수 변경 없음.
     """
+    from config import settings
     from services.llm_service import _get_client
 
     flagged = ", ".join(k for k, v in category_scores.items() if v > 0) or "없음"
@@ -64,7 +65,7 @@ def review_context(
     )
 
     try:
-        client = _get_client("explain")
+        client = _get_client("explain", no_think=settings.OLLAMA_NO_THINK_REVIEW)
         raw    = client.chat(_SYSTEM, prompt)
         start  = raw.find("{")
         end    = raw.rfind("}") + 1

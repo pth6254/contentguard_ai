@@ -1,5 +1,5 @@
 import pytest
-from services.risk_service import classify_risk_level, get_recommended_action
+from services.decision_policy_service import classify_risk_level, get_recommended_action
 
 
 class TestClassifyRiskLevel:

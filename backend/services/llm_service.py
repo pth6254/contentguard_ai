@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -33,9 +34,10 @@ Task = Literal["extract", "explain"]
 # ── 공급자 추상 인터페이스 ──────────────────────────────────────────────────
 
 class _LLMClient(ABC):
-    def __init__(self, model: str = "", temperature: float = 0.1) -> None:
+    def __init__(self, model: str = "", temperature: float = 0.1, no_think: bool = False) -> None:
         self.model = model
         self.temperature = temperature
+        self.no_think = no_think
 
     @abstractmethod
     def chat(self, system: str, user: str) -> str: ...
@@ -47,13 +49,18 @@ class _OllamaClient(_LLMClient):
     def chat(self, system: str, user: str) -> str:
         import ollama
         client = ollama.Client(host=settings.OLLAMA_BASE_URL)
+        if self.no_think:
+            user = f"/no_think\n\n{user}"
         response = client.chat(
             model=self.model or settings.OLLAMA_MODEL,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            options={"temperature": self.temperature},
+            options={
+                "temperature": self.temperature,
+                "num_predict": settings.LLM_MAX_TOKENS,
+            },
         )
         return response["message"]["content"].strip()
 
@@ -131,7 +138,7 @@ _PROVIDERS: dict[str, type[_LLMClient]] = {
 
 # ── 작업별 프로바이더·모델 해석 ───────────────────────────────────────────
 
-def _get_client(task: Task) -> _LLMClient:
+def _get_client(task: Task, no_think: bool = False) -> _LLMClient:
     """task에 맞는 프로바이더·모델·temperature로 클라이언트를 생성한다."""
     if task == "extract":
         provider    = settings.LLM_PROVIDER_EXTRACT
@@ -147,7 +154,7 @@ def _get_client(task: Task) -> _LLMClient:
         raise ValueError(
             f"지원하지 않는 LLM 프로바이더 ({task}): '{provider}'. 지원값: {list(_PROVIDERS)}"
         )
-    return cls(model=model, temperature=temperature)
+    return cls(model=model, temperature=temperature, no_think=no_think)
 
 
 # ── 공개 인터페이스 ────────────────────────────────────────────────────────
@@ -170,7 +177,7 @@ def generate_explanation(
 - 왜 이 등급으로 분류되었는지
 - 운영자에게 어떤 판단을 권장하는지"""
 
-    client = _get_client("explain")
+    client = _get_client("explain", no_think=settings.OLLAMA_NO_THINK_EXPLAIN)
     try:
         explanation = client.chat(_EXPLAIN_SYSTEM, prompt)
         logger.info(
@@ -270,7 +277,7 @@ def generate_explanation_json(
   "confidence_note": "판단의 확신도 또는 주의사항"
 }}"""
 
-    client = _get_client("explain")
+    client = _get_client("explain", no_think=settings.OLLAMA_NO_THINK_EXPLAIN)
     try:
         raw = client.chat(_EXPLAIN_JSON_SYSTEM, prompt)
         # JSON 블록만 추출

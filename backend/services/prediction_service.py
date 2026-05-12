@@ -7,7 +7,7 @@ import joblib
 import numpy as np
 
 from config import settings
-from services.risk_service import classify_risk_level, get_recommended_action
+from services.decision_policy_service import classify_risk_level, get_recommended_action
 
 logger = logging.getLogger(__name__)
 
