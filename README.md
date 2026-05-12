@@ -181,6 +181,59 @@ curl -X PATCH http://localhost:8000/admin/clients/{id}/webhook \
   -d '{"webhook_url": "https://your-service.com/webhook"}'
 ```
 
+### 실제 서비스 연동 예시
+
+클라이언트 서비스(예: 쇼핑몰)에서 두 곳만 수정하면 연동됩니다.
+
+**1. 콘텐츠 제출 — 리뷰 저장 시점에 API 호출 추가**
+
+```python
+import requests
+
+CONTENTGUARD_URL = "https://contentguard.example.com"
+API_KEY = "cg-xxxxxxxxxxxx"  # 어드민에서 발급받은 API 키
+
+def on_review_submitted(review):
+    db.save(review)  # 기존 저장 로직
+
+    # ContentGuard에 위험도 분석 요청 (2줄 추가)
+    requests.post(f"{CONTENTGUARD_URL}/api/analyze",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={"content_id": str(review.id), "text": review.text},
+    )
+```
+
+**2. 웹훅 수신 — 심사 결과를 받아 실제 DB에 반영**
+
+```python
+@app.post("/webhook/contentguard")
+def receive_review_result(payload: dict):
+    content_id = payload["content_id"]
+    status     = payload["review_status"]
+
+    if status == "REMOVED":
+        db.hide_review(content_id)    # 게시 중단
+    elif status == "APPROVED":
+        db.publish_review(content_id) # 정식 게시
+    elif status == "HELD":
+        db.hold_review(content_id)    # 임시 보류
+    elif status == "MONITORED":
+        db.flag_review(content_id)    # 모니터링 태그
+
+    return {"ok": True}
+```
+
+**3. 웹훅 URL 등록**
+
+대시보드 → **API 키 관리** → 클라이언트 카드 하단에서 등록:
+```
+https://쇼핑몰.example.com/webhook/contentguard
+```
+
+이후 운영자가 심사를 완료하면 쇼핑몰 서버로 결과가 자동 전송되어 실제 DB에 반영됩니다.
+
+---
+
 ### 데모 실행
 
 `docker-compose up -d` 실행 시 `demo-receiver` 컨테이너(포트 9000)가 함께 뜨며 웹훅 수신 서버로 동작합니다.
