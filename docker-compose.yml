@@ -62,9 +62,17 @@ services:
     build:
       context: ./demo-receiver
     container_name: contentguard-demo-receiver
+    environment:
+      CONTENTGUARD_URL: http://backend:8000
+      DEMO_CLIENT_API_KEY: ${DEMO_CLIENT_API_KEY:-}
     ports:
       - "9000:9000"
+    volumes:
+      - demo_db:/data
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  demo_db:
