@@ -201,11 +201,22 @@ bash demo.sh
 
 ### 등록된 모델
 
-| 모델 | 역할 | 등급 정확도 |
-|------|------|------------|
-| `logistic_regression` | primary (최종 판단) | 90% |
-| `linear_svm` | shadow | 77% |
-| `tfidf_ridge` | shadow | 62% |
+학습 데이터 500개, 테스트셋 100개(20%), TF-IDF char n-gram(2~4) 기준 실측값.
+
+| 모델 | 역할 | 정확도 | F1 (macro) | MAE | R² |
+|------|------|:------:|:----------:|:---:|:--:|
+| `logistic_regression` | primary (최종 판단) | **90.0%** | **88.7%** | — | — |
+| `linear_svm` | shadow | 77.0% | 73.6% | 0.102 | 0.870 |
+| `tfidf_ridge` | shadow | 62.0% | 60.1% | 0.134 | 0.808 |
+
+#### Logistic Regression 등급별 성능 (primary 모델)
+
+| 등급 | Precision | Recall | F1 | Support |
+|------|:---------:|:------:|:--:|:-------:|
+| LOW | 0.94 | 0.83 | 0.88 | 35 |
+| MEDIUM | 0.75 | 0.88 | 0.81 | 17 |
+| HIGH | 0.88 | 0.88 | 0.88 | 16 |
+| CRITICAL | 0.97 | 1.00 | 0.98 | 32 |
 
 ### Decision Policy
 
