@@ -1,5 +1,5 @@
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 
@@ -21,7 +21,7 @@ async def receive_webhook(request: Request):
     payload = await request.json()
     status = payload.get("review_status", "UNKNOWN")
     entry = {
-        "received_at": datetime.now().isoformat(timespec="seconds"),
+        "received_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         **payload,
         "action_taken": ACTION_MESSAGES.get(status, f"상태 처리: {status}"),
     }
