@@ -59,8 +59,8 @@ while true; do
   read -p "분석할 텍스트를 입력하세요: " SAMPLE_TEXT
   echo ""
 
-  # 1. 데모 DB에 리뷰 제출 → demo-client가 ContentGuard에 분석 요청
-  echo "[1/3] 리뷰 제출 (데모 DB 저장 + ContentGuard 분석 요청)"
+  # 1. 데모 DB에 리뷰 제출 → demo-client가 ContentGuard에 분석 요청 (백그라운드)
+  echo "[1/3] 리뷰 제출 (데모 DB 저장 + ContentGuard 분석 백그라운드 시작)"
   echo "      텍스트: $SAMPLE_TEXT"
   echo ""
   RESULT=$(curl -s -X POST "$RECEIVER_URL/reviews" \
@@ -68,9 +68,23 @@ while true; do
     -d "{\"text\": \"$SAMPLE_TEXT\"}")
 
   CONTENT_ID=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['content_id'])" 2>/dev/null || echo "?")
-  RISK_LEVEL=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['risk_level'])" 2>/dev/null || echo "?")
 
   echo "      → content_id : $CONTENT_ID"
+  echo "      → AI 분석 진행 중..."
+  echo ""
+
+  # ContentGuard 분석 완료 대기 (SUBMITTED → PENDING)
+  for i in $(seq 1 30); do
+    STATUS=$(curl -s "$RECEIVER_URL/reviews/$CONTENT_ID" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null)
+    if [ "$STATUS" = "PENDING" ]; then
+      break
+    fi
+    echo -ne "      대기 중... ${i}초\r"
+    sleep 3
+  done
+  echo ""
+
+  RISK_LEVEL=$(curl -s "$RECEIVER_URL/reviews/$CONTENT_ID" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('risk_level','UNKNOWN'))" 2>/dev/null)
   echo "      → 위험 등급  : $RISK_LEVEL"
   echo ""
   echo "  [데모 DB 현재 상태]"
@@ -89,10 +103,6 @@ while true; do
   curl -s "$RECEIVER_URL/reviews/$CONTENT_ID" | pretty_kst
   echo ""
 
-  echo "======================================"
-  echo " Round $ROUND 완료  (Ctrl+C 로 종료)"
-  echo "======================================"
   echo ""
-
   ROUND=$(( ROUND + 1 ))
 done

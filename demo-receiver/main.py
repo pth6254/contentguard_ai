@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 app = FastAPI(title="Demo Client Service")
@@ -59,12 +59,34 @@ class ReviewSubmit(BaseModel):
     text: str
 
 
+async def _call_contentguard(content_id: str, text: str):
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{CONTENTGUARD_URL}/api/analyze",
+                headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+                json={"content_id": content_id, "text": text},
+            )
+            cg_data = resp.json()
+        risk_level = cg_data.get("risk_level", "UNKNOWN")
+    except Exception as e:
+        print(f"[BG] ContentGuard 호출 실패: {e}")
+        risk_level = "UNKNOWN"
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE reviews SET status='PENDING', risk_level=? WHERE content_id=?",
+            (risk_level, content_id),
+        )
+    print(f"[BG] content_id={content_id} risk_level={risk_level}")
+
+
 @app.post("/reviews", status_code=201)
-async def submit_review(body: ReviewSubmit):
+async def submit_review(body: ReviewSubmit, background_tasks: BackgroundTasks):
     """
-    1. 데모 DB에 리뷰 저장
-    2. ContentGuard API로 분석 요청
-    3. 분석 결과(위험 등급)를 DB에 업데이트 → PENDING 상태로 전환
+    1. 데모 DB에 리뷰 저장 후 즉시 응답
+    2. 백그라운드에서 ContentGuard API 분석 요청
+    3. 분석 완료 시 DB risk_level 업데이트 → PENDING 상태로 전환
     """
     content_id = f"demo-{int(time.time())}"
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -75,23 +97,9 @@ async def submit_review(body: ReviewSubmit):
             (content_id, body.text, created_at),
         )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"{CONTENTGUARD_URL}/api/analyze",
-            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-            json={"content_id": content_id, "text": body.text},
-        )
-        cg_data = resp.json()
-
-    risk_level = cg_data.get("risk_level", "UNKNOWN")
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE reviews SET status='PENDING', risk_level=? WHERE content_id=?",
-            (risk_level, content_id),
-        )
-
-    print(f"[SUBMIT] content_id={content_id} risk_level={risk_level}")
-    return {"content_id": content_id, "risk_level": risk_level, "status": "PENDING"}
+    background_tasks.add_task(_call_contentguard, content_id, body.text)
+    print(f"[SUBMIT] content_id={content_id} → ContentGuard 분석 백그라운드 시작")
+    return {"content_id": content_id, "status": "SUBMITTED"}
 
 
 @app.post("/webhook")
