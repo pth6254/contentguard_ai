@@ -9,6 +9,8 @@ import { api, type Content, type ReviewStatus } from "@/lib/api"
 import { toKSTDate } from "@/lib/utils"
 import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
+import { CategoryScoreBars } from "@/components/category-score-bars"
+import { HighlightedText } from "@/components/highlighted-text"
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "전체" },
@@ -65,13 +67,61 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
         {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
       </div>
       {open && (
-        <div className="px-4 pb-4 space-y-2">
-          {item.explanation && (
+        <div className="px-4 pb-4 space-y-3">
+          {/* 전문 + evidence 하이라이트 */}
+          <div className="rounded-md bg-slate-900 p-3">
+            <p className="text-slate-500 text-xs font-medium mb-1.5">원문</p>
+            {item.evidence_spans && item.evidence_spans.length > 0 ? (
+              <HighlightedText text={item.text} spans={item.evidence_spans} />
+            ) : (
+              <p className="text-sm text-slate-200">{item.text}</p>
+            )}
+          </div>
+
+          {/* 카테고리 점수 */}
+          {item.category_scores && (
+            <div className="rounded-md bg-slate-900 p-3">
+              <p className="text-slate-500 text-xs font-medium mb-2">카테고리별 위험 점수</p>
+              <CategoryScoreBars scores={item.category_scores} />
+            </div>
+          )}
+
+          {/* 강제 승격 규칙 */}
+          {item.triggered_rules && item.triggered_rules.length > 0 && (
+            <div className="rounded-md bg-amber-950/40 border border-amber-800/40 p-3">
+              <p className="text-amber-400 text-xs font-medium mb-1.5">강제 승격 규칙 적용됨</p>
+              <div className="space-y-1">
+                {item.triggered_rules.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs text-amber-300/80">
+                    <span className="font-mono bg-amber-900/40 px-1 rounded">{r.rule_id}</span>
+                    <span>{r.description}</span>
+                    <span className="ml-auto text-amber-500">최소 {r.min_grade}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* AI 설명 */}
+          {item.explanation_json ? (
+            <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400 space-y-2">
+              <p className="text-slate-400 font-medium">{item.explanation_json.summary}</p>
+              {item.explanation_json.main_reasons.length > 0 && (
+                <ul className="list-disc list-inside space-y-0.5 text-slate-500">
+                  {item.explanation_json.main_reasons.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              )}
+              <p className="text-slate-600 border-t border-slate-800 pt-2">
+                {item.explanation_json.recommended_operator_check}
+              </p>
+            </div>
+          ) : item.explanation ? (
             <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400 leading-relaxed">
               <p className="text-slate-500 mb-1 font-medium">AI 설명</p>
               {item.explanation}
             </div>
-          )}
+          ) : null}
+
           {item.reviewer_comment && (
             <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400">
               <p className="text-slate-500 mb-1 font-medium">운영자 메모</p>

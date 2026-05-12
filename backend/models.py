@@ -1,7 +1,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 
 from database import Base
 
@@ -52,6 +52,14 @@ class Content(Base):
     risk_level = Column(String, nullable=False)
     recommended_action = Column(String, nullable=False)
     explanation = Column(Text, nullable=True)
+    # 분석 세부 정보 (v2 — nullable for backward compatibility)
+    raw_model_score   = Column(Float, nullable=True)
+    calibrated_score  = Column(Float, nullable=True)
+    category_scores   = Column(JSON, nullable=True)   # {profanity:0-100, ...}
+    triggered_rules   = Column(JSON, nullable=True)   # [{rule_id, description, ...}]
+    evidence_spans    = Column(JSON, nullable=True)   # [{text, category, severity, ...}]
+    explanation_json  = Column(JSON, nullable=True)   # LLM 구조화 출력 전체
+
     review_status = Column(String, nullable=False, default="PENDING")
     review_action = Column(String, nullable=True)
     reviewer_comment = Column(Text, nullable=True)

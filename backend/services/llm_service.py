@@ -21,6 +21,10 @@ FALLBACK_TEMPLATES = {
 }
 
 _EXPLAIN_SYSTEM = "당신은 콘텐츠 안전 운영자를 돕는 AI 어시스턴트입니다. 분석 결과를 간결하고 명확하게 한국어로 설명해주세요."
+_EXPLAIN_JSON_SYSTEM = """당신은 콘텐츠 안전 심사를 지원하는 AI 분석가입니다.
+점수와 등급은 이미 확정되었으며, 당신은 그 결과를 해설하는 역할만 합니다.
+반드시 유효한 JSON만 출력하세요. JSON 외의 텍스트(설명, 마크다운 코드블록 등)를 포함하지 마세요.
+텍스트에 실제로 존재하는 표현만 근거로 제시하고, 개인정보(전화번호·이메일·주민번호 등)를 설명에 포함하지 마세요."""
 _EXTRACT_SYSTEM = "당신은 웹 콘텐츠에서 사용자 작성 텍스트를 추출하는 도우미입니다."
 
 Task = Literal["extract", "explain"]
@@ -29,8 +33,9 @@ Task = Literal["extract", "explain"]
 # ── 공급자 추상 인터페이스 ──────────────────────────────────────────────────
 
 class _LLMClient(ABC):
-    def __init__(self, model: str = "") -> None:
+    def __init__(self, model: str = "", temperature: float = 0.1) -> None:
         self.model = model
+        self.temperature = temperature
 
     @abstractmethod
     def chat(self, system: str, user: str) -> str: ...
@@ -48,7 +53,7 @@ class _OllamaClient(_LLMClient):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            options={"temperature": 0.3},
+            options={"temperature": self.temperature},
         )
         return response["message"]["content"].strip()
 
@@ -63,7 +68,7 @@ class _OpenAIClient(_LLMClient):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0.3,
+            temperature=self.temperature,
         )
         return response.choices[0].message.content.strip()
 
@@ -77,6 +82,7 @@ class _AnthropicClient(_LLMClient):
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": user}],
+            temperature=self.temperature,
         )
         return response.content[0].text.strip()
 
@@ -91,7 +97,7 @@ class _GeminiClient(_LLMClient):
         )
         response = model.generate_content(
             user,
-            generation_config=genai.types.GenerationConfig(temperature=0.3),
+            generation_config=genai.types.GenerationConfig(temperature=self.temperature),
         )
         return response.text.strip()
 
@@ -109,7 +115,7 @@ class _DeepSeekClient(_LLMClient):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0.3,
+            temperature=self.temperature,
         )
         return response.choices[0].message.content.strip()
 
@@ -126,20 +132,22 @@ _PROVIDERS: dict[str, type[_LLMClient]] = {
 # ── 작업별 프로바이더·모델 해석 ───────────────────────────────────────────
 
 def _get_client(task: Task) -> _LLMClient:
-    """task에 맞는 프로바이더와 모델로 클라이언트를 생성한다."""
+    """task에 맞는 프로바이더·모델·temperature로 클라이언트를 생성한다."""
     if task == "extract":
-        provider = settings.LLM_PROVIDER_EXTRACT
-        model    = settings.LLM_MODEL_EXTRACT
+        provider    = settings.LLM_PROVIDER_EXTRACT
+        model       = settings.LLM_MODEL_EXTRACT
+        temperature = settings.LLM_TEMPERATURE_EXTRACT
     else:  # explain
-        provider = settings.LLM_PROVIDER_EXPLAIN
-        model    = settings.LLM_MODEL_EXPLAIN
+        provider    = settings.LLM_PROVIDER_EXPLAIN
+        model       = settings.LLM_MODEL_EXPLAIN
+        temperature = settings.LLM_TEMPERATURE_EXPLAIN
 
     cls = _PROVIDERS.get(provider.lower())
     if cls is None:
         raise ValueError(
             f"지원하지 않는 LLM 프로바이더 ({task}): '{provider}'. 지원값: {list(_PROVIDERS)}"
         )
-    return cls(model=model)
+    return cls(model=model, temperature=temperature)
 
 
 # ── 공개 인터페이스 ────────────────────────────────────────────────────────
@@ -176,6 +184,122 @@ def generate_explanation(
             settings.LLM_PROVIDER_EXPLAIN, client.model or "(default)", e,
         )
         return FALLBACK_TEMPLATES.get(risk_level, "분석 결과를 확인하세요.")
+
+
+def generate_explanation_json(
+    masked_text: str,
+    final_score: float,
+    final_grade: str,
+    recommended_action: str,
+    category_scores: dict[str, int],
+    triggered_rules: list[dict],
+    evidence_spans: list[dict],
+    context_note: str = "",
+) -> dict:
+    """
+    LLM을 해설자로만 사용해 구조화된 JSON 설명을 생성한다.
+    점수/등급은 이미 확정된 값이며 LLM은 변경할 수 없다.
+    실패 또는 검증 실패 시 fallback을 반환한다.
+    """
+    from services.explanation_validator import validate_explanation, build_fallback_explanation
+
+    cat_ko = {
+        "profanity": "욕설/비방", "threat": "협박/폭력", "sexual": "성적 표현",
+        "privacy": "개인정보 침해", "spam": "스팸/도배",
+        "self_harm": "자해/자살 표현", "policy_violation": "정책 위반",
+    }
+    grade_ko = {
+        "LOW": "낮음", "MEDIUM": "보통", "HIGH": "높음", "CRITICAL": "심각",
+    }
+    action_ko = {
+        "APPROVE": "승인", "MONITOR": "모니터링", "REVIEW": "검토", "HOLD": "보류",
+    }
+
+    cat_summary = ", ".join(
+        f"{cat_ko.get(k, k)}({v}점)"
+        for k, v in sorted(category_scores.items(), key=lambda x: x[1], reverse=True)
+        if v > 0
+    ) or "없음"
+
+    rule_summary = "\n".join(
+        f"  - [{r.get('rule_id')}] {r.get('description')} (최소 등급: {r.get('min_grade')})"
+        for r in triggered_rules
+    ) or "  없음"
+
+    span_summary = "\n".join(
+        f"  - \"{s.get('text')}\" ({cat_ko.get(s.get('category', ''), s.get('category', ''))}, 심각도: {s.get('severity')})"
+        for s in evidence_spans
+    ) or "  없음"
+
+    context_section = f"\n[맥락 분석 결과]\n{context_note}\n" if context_note else ""
+
+    prompt = f"""다음은 콘텐츠 안전 시스템의 분석 결과입니다.
+{context_section}
+[분석 대상 텍스트]
+{masked_text}
+
+[확정된 판정 결과 — 변경 불가]
+최종 점수: {final_score:.3f} (0.0=안전, 1.0=매우위험)
+최종 등급: {final_grade} ({grade_ko.get(final_grade, final_grade)})
+권장 조치: {recommended_action} ({action_ko.get(recommended_action, recommended_action)})
+
+[카테고리별 위험 점수 (0-100)]
+{cat_summary}
+
+[강제 승격 규칙 적용 결과]
+{rule_summary}
+
+[감지된 위험 표현]
+{span_summary}
+
+위 분석 결과를 바탕으로 운영자를 위한 심사 리포트를 다음 JSON 형식으로 작성하세요.
+최종 점수와 등급은 절대 변경하지 마세요. 텍스트에 실제로 있는 표현만 근거로 제시하세요.
+
+{{
+  "summary": "한 문장 요약",
+  "score_explanation": "이 점수와 등급이 산정된 이유 설명",
+  "main_reasons": ["핵심 이유 1", "핵심 이유 2"],
+  "evidence": [
+    {{
+      "quote": "텍스트에서 인용한 위험 표현",
+      "category": "카테고리명(영문)",
+      "why_it_matters": "왜 위험한지 설명"
+    }}
+  ],
+  "recommended_operator_check": "운영자가 반드시 확인해야 할 사항",
+  "confidence_note": "판단의 확신도 또는 주의사항"
+}}"""
+
+    client = _get_client("explain")
+    try:
+        raw = client.chat(_EXPLAIN_JSON_SYSTEM, prompt)
+        # JSON 블록만 추출
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start == -1 or end == 0:
+            raise ValueError("JSON 객체를 찾을 수 없음")
+        parsed = json.loads(raw[start:end])
+    except Exception as e:
+        logger.error(
+            "LLM JSON 설명 생성 실패 (provider=%s): %s — fallback 사용",
+            settings.LLM_PROVIDER_EXPLAIN, e,
+        )
+        return build_fallback_explanation(
+            final_grade, final_score, category_scores, triggered_rules, recommended_action
+        )
+
+    is_valid, errors = validate_explanation(parsed, final_grade, final_score, masked_text)
+    if not is_valid:
+        logger.warning("LLM 설명 검증 실패: %s — fallback 사용", errors)
+        return build_fallback_explanation(
+            final_grade, final_score, category_scores, triggered_rules, recommended_action
+        )
+
+    logger.info(
+        "LLM JSON 설명 생성 완료 — provider=%s grade=%s",
+        settings.LLM_PROVIDER_EXPLAIN, final_grade,
+    )
+    return parsed
 
 
 _MIN_TEXT_LEN = 10   # 날짜·작성자명 등 제거

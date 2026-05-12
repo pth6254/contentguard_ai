@@ -42,6 +42,18 @@ class Settings:
     ]
 
     FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
+
+    # 카테고리/모델 점수 조합 가중치 (합계 = 1.0 권장)
+    SCORE_WEIGHT_MODEL: float = float(os.getenv("SCORE_WEIGHT_MODEL", "0.7"))
+    SCORE_WEIGHT_CATEGORY: float = float(os.getenv("SCORE_WEIGHT_CATEGORY", "0.3"))
+
+    # LLM 온도 — explain은 JSON 일관성을 위해 낮게, extract는 정밀 추출을 위해 낮게
+    LLM_TEMPERATURE_EXPLAIN: float = float(os.getenv("LLM_TEMPERATURE_EXPLAIN", "0.1"))
+    LLM_TEMPERATURE_EXTRACT: float = float(os.getenv("LLM_TEMPERATURE_EXTRACT", "0.1"))
+
+    # LLM 맥락 검토 — true로 설정하면 LLM이 텍스트 의도를 평가해 점수를 최대 -0.30 조정
+    # 레이턴시 +1~3초, LLM 호출 1회 추가. 기본 비활성.
+    LLM_CONTEXT_REVIEW: bool = os.getenv("LLM_CONTEXT_REVIEW", "false").lower() == "true"
     ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
 
     # JWT

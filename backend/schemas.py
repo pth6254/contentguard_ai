@@ -16,6 +16,14 @@ class ReviewRequest(BaseModel):
     comment: Optional[str] = Field(None, example="검토 후 문제없음")
 
 
+class EvidenceSpan(BaseModel):
+    text: str
+    category: str
+    severity: str
+    start_index: int
+    end_index: int
+
+
 class ContentResponse(BaseModel):
     content_id: str
     text: str
@@ -28,6 +36,14 @@ class ContentResponse(BaseModel):
     reviewer_comment: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     created_at: datetime
+
+    # v2 분석 세부 정보 (신규 필드 — 기존 레코드는 null)
+    raw_model_score:  Optional[float] = None
+    calibrated_score: Optional[float] = None
+    category_scores:  Optional[dict]  = None
+    triggered_rules:  Optional[list]  = None
+    evidence_spans:   Optional[list]  = None
+    explanation_json: Optional[dict]  = None
 
     model_config = ConfigDict(from_attributes=True)
 

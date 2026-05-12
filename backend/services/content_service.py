@@ -16,6 +16,13 @@ def save_analysis(
     all_predictions: list[dict],
     final: dict,
     explanation: Optional[str] = None,
+    # v2 분석 세부 정보 (upload/crawl 라우터는 전달하지 않아도 됨)
+    category_scores: Optional[dict] = None,
+    triggered_rules: Optional[list] = None,
+    evidence_spans: Optional[list] = None,
+    explanation_json: Optional[dict] = None,
+    raw_model_score: Optional[float] = None,
+    calibrated_score: Optional[float] = None,
 ) -> Content:
     """예측 결과를 DB에 저장한다. 예측 실행과 LLM 호출은 호출자 책임."""
 
@@ -27,6 +34,13 @@ def save_analysis(
         risk_level=final["risk_level"],
         recommended_action=final["recommended_action"],
         explanation=explanation,
+        # v2 필드
+        raw_model_score=raw_model_score,
+        calibrated_score=calibrated_score,
+        category_scores=category_scores,
+        triggered_rules=triggered_rules,
+        evidence_spans=evidence_spans,
+        explanation_json=explanation_json,
     )
 
     try:
@@ -55,7 +69,7 @@ def save_analysis(
         raise
 
     logger.info(
-        "저장 완료: content_id=%s risk_level=%s score=%.2f models=%d",
+        "저장 완료: content_id=%s risk_level=%s score=%.3f models=%d",
         content_id, final["risk_level"], final["risk_score"], len(all_predictions),
     )
     return record

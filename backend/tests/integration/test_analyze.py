@@ -50,7 +50,32 @@ class TestAnalyzeEndpoint:
             "/api/analyze",
             json={"content_id": "C001", "text": "테스트"},
         )
+        # explanation은 explanation_json["summary"]로 설정됨
         assert response.json()["explanation"] == "테스트 설명입니다."
+
+    def test_v2_fields_present_in_response(self, client, mock_predict):
+        response = client.post(
+            "/api/analyze",
+            json={"content_id": "C001", "text": "테스트"},
+        )
+        data = response.json()
+        assert "category_scores" in data
+        assert "triggered_rules" in data
+        assert "evidence_spans" in data
+        assert "explanation_json" in data
+        assert "calibrated_score" in data
+        assert "raw_model_score" in data
+
+    def test_explanation_json_has_required_keys(self, client, mock_predict):
+        response = client.post(
+            "/api/analyze",
+            json={"content_id": "C001", "text": "테스트"},
+        )
+        ej = response.json()["explanation_json"]
+        assert ej is not None
+        for key in ("summary", "score_explanation", "main_reasons", "evidence",
+                    "recommended_operator_check", "confidence_note"):
+            assert key in ej
 
     def test_duplicate_content_id_returns_400(self, client, mock_predict):
         client.post("/api/analyze", json={"content_id": "C001", "text": "첫 번째"})

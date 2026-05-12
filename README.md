@@ -8,8 +8,16 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 
 **핵심 철학: AI가 판단하고, LLM이 설명하고, 사람이 결정한다.**
 
+> **v2 업데이트**: 카테고리별 위험 점수 / 강제 승격 규칙 / PII 마스킹 / LLM 구조화 설명(JSON) 추가
+
 ## 주요 기능
 
+- **카테고리별 위험 점수**: profanity / threat / sexual / privacy / spam / self_harm / policy_violation — 각 0-100점 독립 산정
+- **강제 승격 규칙**: PII 탐지 → 최소 HIGH, 자해 표현 → 최소 CRITICAL 등 규칙 기반 등급 하한선 적용
+- **PII 마스킹**: 전화번호·이메일·주민번호·카드번호를 LLM 전달 전 자동 마스킹
+- **LLM 구조화 설명(JSON)**: 점수/등급은 ML이 결정, LLM은 근거 설명만 담당. 검증 실패 시 fallback 생성
+- **보정 점수**: ML 점수 × w + 카테고리 최고점 × w 조합 (`SCORE_WEIGHT_MODEL` / `SCORE_WEIGHT_CATEGORY` 환경변수)
+- **Evidence Span**: 위험 판단 근거 문구의 위치(start/end index)와 심각도를 함께 반환
 - **다중 ML 모델**: Ridge Regression / Linear SVM / Logistic Regression 동시 실행 및 결과 저장
 - **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
 - **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
@@ -59,10 +67,15 @@ contentguard_ai/
 │   │   ├── active_learning.py      # GET /api/active-learning/candidates
 │   │   └── admin.py                # /admin/* (운영자 전용, 웹훅 URL 관리 포함)
 │   ├── services/
-│   │   ├── content_service.py      # save_analysis() — DB 저장 공통 로직
-│   │   ├── prediction_service.py   # ModelRegistry + BaseMLModel 인터페이스
-│   │   ├── llm_service.py          # 멀티 프로바이더 LLM + 3단계 하이브리드 텍스트 추출
-│   │   └── risk_service.py         # 등급 분류 / 권장 조치 규칙
+│   │   ├── content_service.py          # save_analysis() — DB 저장 공통 로직
+│   │   ├── prediction_service.py       # ModelRegistry + BaseMLModel 인터페이스
+│   │   ├── llm_service.py              # 멀티 프로바이더 LLM + generate_explanation_json()
+│   │   ├── risk_service.py             # 등급 분류 / 권장 조치 규칙
+│   │   ├── rule_detector.py            # PII 마스킹 + 강제 승격 규칙 탐지
+│   │   ├── category_scorer.py          # 카테고리별 0-100점 산정 + calibrated_score
+│   │   ├── evidence_service.py         # Evidence span 추출
+│   │   ├── decision_policy_service.py  # apply_forced_escalation()
+│   │   └── explanation_validator.py    # LLM JSON 응답 검증 + fallback 생성
 │   └── tests/
 │       ├── unit/
 │       └── integration/
@@ -93,6 +106,71 @@ contentguard_ai/
 ├── .env.example
 ├── docker-compose.yml
 └── requirements.txt
+```
+
+## v2 점수·등급 산정 흐름 (POST /api/analyze)
+
+```
+입력 텍스트
+    │
+    ├─ [1] PII 마스킹        mask_pii()          전화번호·이메일·주민번호 → [태그] 치환
+    │                                            → masked_text, detected_pii
+    │
+    ├─ [2] ML 예측           predict_all()       TF-IDF × 3 모델 병렬 실행
+    │                        get_final_result()  Decision Policy 적용
+    │                                            → raw_model_score (0.0–1.0)
+    │
+    ├─ [3] 카테고리 점수     compute_category_scores()
+    │                        7개 카테고리 × 키워드 매칭 → {profanity:0-100, ...}
+    │
+    ├─ [4] 보정 점수         compute_calibrated_score()
+    │                        calibrated = raw × 0.7 + max(categories)/100 × 0.3
+    │                        (가중치 SCORE_WEIGHT_MODEL / SCORE_WEIGHT_CATEGORY 환경변수)
+    │
+    ├─ [5] 강제 승격         detect_rules() + apply_forced_escalation()
+    │                        PII → 최소 HIGH, 자해 → 최소 CRITICAL 등
+    │                        → final_score, final_grade (LLM이 변경 불가)
+    │
+    ├─ [6] Evidence Span     extract_evidence_spans()
+    │                        masked_text에서 위험 키워드 위치 추출
+    │                        → [{text, category, severity, start_index, end_index}]
+    │
+    └─ [7] LLM 설명 생성     generate_explanation_json()
+           ├─ LLM에 전달: masked_text + final_score/grade + category_scores
+           │               + triggered_rules + evidence_spans
+           ├─ LLM 출력: JSON {summary, score_explanation, main_reasons,
+           │                   evidence, recommended_operator_check, confidence_note}
+           ├─ 검증:      validate_explanation() — PII 포함 여부, 스키마 검사
+           └─ 실패 시:   build_fallback_explanation() — 결정론적 대체 설명
+```
+
+### 강제 승격 규칙 (triggered_rules)
+
+| rule_id | 탐지 조건 | 최소 등급 |
+|---------|-----------|----------|
+| `PII_DETECTED` | 전화번호·이메일·주민번호·카드번호 패턴 | HIGH |
+| `DIRECT_THREAT` | "죽여버릴", "폭탄", "테러" 등 직접 위협 표현 | HIGH |
+| `SELF_HARM` | "자살할", "죽고 싶다", "목숨을 끊" 등 자해 임박 | CRITICAL |
+| `PHISHING_LINK` | login/verify/secure 경로 포함 URL | HIGH |
+| `DOXXING` | "신상털", "집주소 알아냈" 등 개인정보 공개 의도 | HIGH |
+
+### LLM 설명 JSON 스키마
+
+```json
+{
+  "summary": "한 문장 요약",
+  "score_explanation": "점수·등급 산정 이유",
+  "main_reasons": ["핵심 이유 1", "핵심 이유 2"],
+  "evidence": [
+    {
+      "quote": "마스킹된 텍스트에서 인용한 위험 표현",
+      "category": "threat",
+      "why_it_matters": "왜 위험한지"
+    }
+  ],
+  "recommended_operator_check": "운영자 확인 사항",
+  "confidence_note": "확신도·주의사항"
+}
 ```
 
 ## 기술 스택

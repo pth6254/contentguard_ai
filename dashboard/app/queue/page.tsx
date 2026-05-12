@@ -10,6 +10,8 @@ import { api, type Content, type ModelPrediction, type RiskLevel } from "@/lib/a
 import { toKSTDateTime } from "@/lib/utils"
 import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
+import { CategoryScoreBars } from "@/components/category-score-bars"
+import { HighlightedText } from "@/components/highlighted-text"
 
 const LEVEL_COUNT_COLOR: Record<RiskLevel, string> = {
   LOW: "text-emerald-400", MEDIUM: "text-yellow-400", HIGH: "text-orange-400", CRITICAL: "text-red-400",
@@ -209,7 +211,20 @@ export default function QueuePage() {
                       <span className="text-xs text-slate-500 font-mono">{item.content_id}</span>
                       <span className="text-xs text-slate-500">{toKSTDateTime(item.created_at)}</span>
                     </div>
-                    <p className="text-sm text-slate-200">{item.text}</p>
+                    {/* 텍스트: evidence_spans 있으면 하이라이트, 없으면 일반 출력 */}
+                    {item.evidence_spans && item.evidence_spans.length > 0 ? (
+                      <HighlightedText text={item.text} spans={item.evidence_spans} />
+                    ) : (
+                      <p className="text-sm text-slate-200">{item.text}</p>
+                    )}
+
+                    {/* 카테고리별 위험 점수 막대 */}
+                    {item.category_scores && (
+                      <div className="pt-1">
+                        <CategoryScoreBars scores={item.category_scores} />
+                      </div>
+                    )}
+
                     {item.explanation && (
                       <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{item.explanation}</p>
                     )}

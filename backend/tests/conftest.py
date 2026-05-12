@@ -132,12 +132,41 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+MOCK_EXPLANATION_JSON = {
+    "summary": "테스트 설명입니다.",
+    "score_explanation": "테스트 점수 설명입니다.",
+    "main_reasons": ["테스트 이유"],
+    "evidence": [{"quote": "테스트", "category": "profanity", "why_it_matters": "테스트"}],
+    "recommended_operator_check": "테스트 확인사항",
+    "confidence_note": "테스트 확신도",
+}
+
+MOCK_CATEGORY_SCORES = {
+    "profanity": 0, "threat": 0, "sexual": 0,
+    "privacy": 0, "spam": 0, "self_harm": 0, "policy_violation": 0,
+}
+
+MOCK_TRIGGERED_RULES: list = []
+
+MOCK_EVIDENCE_SPANS: list = []
+
+
 @pytest.fixture
 def mock_predict():
     with (
         patch.object(prediction_service, "predict_all", return_value=MOCK_PREDICTIONS),
         patch.object(prediction_service, "get_final_result", return_value=MOCK_FINAL_RESULT),
-        patch("routers.analyze.generate_explanation", return_value="테스트 설명입니다."),
+        patch("routers.analyze.generate_explanation_json", return_value=MOCK_EXPLANATION_JSON),
+        patch("routers.analyze.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
+        patch("routers.analyze.detect_rules", return_value=[]),
+        patch("routers.analyze.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
+        patch("routers.analyze.compute_calibrated_score", return_value=MOCK_FINAL_RESULT["risk_score"]),
+        patch("routers.analyze.apply_forced_escalation", return_value=(
+            MOCK_FINAL_RESULT["risk_score"],
+            MOCK_FINAL_RESULT["risk_level"],
+            MOCK_FINAL_RESULT["recommended_action"],
+        )),
+        patch("routers.analyze.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
         patch("routers.upload.generate_explanation", return_value="테스트 설명입니다."),
         patch("routers.crawl.generate_explanation", return_value="테스트 설명입니다."),
     ):
