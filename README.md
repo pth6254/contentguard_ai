@@ -91,7 +91,8 @@ contentguard_ai/
 ├── demo-receiver/
 │   ├── main.py               # 웹훅 수신 데모 서버 (POST /webhook, GET /logs)
 │   └── Dockerfile
-├── demo.sh                   # 웹훅 E2E 데모 스크립트
+├── demo_submit.sh            # 웹훅 데모 — Phase 1: 텍스트 제출 + AI 분석 결과 확인
+├── demo_watch.sh             # 웹훅 데모 — Phase 2: 심사 완료 감지 + 결과 자동 표시
 ├── .env
 ├── .env.example
 ├── docker-compose.yml
@@ -313,11 +314,16 @@ https://쇼핑몰.example.com/webhook/contentguard
 `docker-compose up -d` 실행 시 `demo-receiver` 컨테이너(포트 9000)가 함께 뜨며 웹훅 수신 서버로 동작합니다.
 
 ```bash
-# .env에 DEMO_CLIENT_API_KEY 설정 후
-bash demo.sh
+# 1단계: 텍스트 제출 + AI 분석 결과 확인
+bash demo_submit.sh
+
+# 2단계: 대시보드(http://localhost:3000/queue)에서 심사
+
+# 3단계: 웹훅 수신 + 데모 DB 반영 결과 자동 표시
+bash demo_watch.sh
 ```
 
-실행할 때마다 사기·가품·개인정보 유출·폭언 등 카테고리별 샘플 텍스트 31종 중 하나가 무작위로 선택됩니다. 출력되는 타임스탬프는 KST(한국 시간)로 자동 변환됩니다.
+두 스크립트를 분리해 클라이언트 서비스의 비동기 흐름(제출 → 심사 대기 없이 다른 작업 → 웹훅 수신)을 그대로 재현합니다. 출력되는 타임스탬프는 KST(한국 시간)로 자동 변환됩니다.
 
 | 항목 | 주소 |
 |------|------|
@@ -514,7 +520,7 @@ pytest
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
 | DELETE | `/api/contents/{id}` | 콘텐츠 삭제 |
 | POST | `/api/reviews/{id}` | 심사 결과 제출 → 웹훅 자동 발송 |
-| GET | `/api/active-learning/candidates` | 재학습 후보 조회 |
+| GET | `/api/active-learning/candidates` | LLM 판단↔운영자 판단 불일치 건 조회 |
 | POST | `/admin/clients` | 클라이언트 생성 |
 | GET | `/admin/clients` | 클라이언트 목록 |
 | PATCH | `/admin/clients/{id}` | 클라이언트 이름 수정 |
@@ -657,7 +663,7 @@ curl http://localhost:8000/health
 - Ridge Regression, LinearSVM, Logistic Regression 3모델 병렬 실행
 - Decision Policy — `primary_only` / `conservative` / `ensemble_mean` / `majority_vote`
 - `ModelPrediction` DB 테이블 — 모델별 예측 결과 저장
-- Active Learning — 운영자 판단↔모델 예측 불일치 건 추출 (`GET /api/active-learning/candidates`)
+- Active Learning — 운영자 판단↔AI 분류 불일치 건 추출 (`GET /api/active-learning/candidates`)
 - Next.js 대시보드 초기 구성 (TypeScript, Tailwind CSS)
 - 통합·유닛 테스트 기반 구축
 

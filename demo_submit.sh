@@ -1,10 +1,16 @@
 #!/bin/bash
-# 웹훅 데모 스크립트 (루프 모드)
+# 웹훅 데모 — Phase 1: 리뷰 제출 + AI 분석 결과 확인
+#
 # 사전 준비:
 #   1. docker-compose up -d
 #   2. .env의 DEMO_CLIENT_API_KEY에 발급받은 키 입력
 #   3. 어드민 페이지에서 해당 클라이언트의 webhook_url 등록
 #      → http://demo-receiver:9000/webhook
+#
+# 사용 흐름:
+#   1. bash demo.sh          → 텍스트 제출, AI 분석 결과 확인
+#   2. 대시보드에서 심사      → http://localhost:3000/queue
+#   3. bash demo_watch.sh    → 웹훅 수신 + 데모 DB 반영 결과 자동 표시
 
 set -e
 source .env
@@ -12,9 +18,6 @@ source .env
 BASE_URL="http://localhost:8000"
 RECEIVER_URL="http://localhost:9000"
 
-
-# JSON 내 UTC 타임스탬프를 KST(+09:00)로 변환해서 출력
-# heredoc + pipe는 stdin 충돌로 동작 안 함 → 임시 파일로 스크립트 전달
 _KST_PY=$(mktemp /tmp/pretty_kst_XXXXXX.py)
 trap "rm -f $_KST_PY" EXIT
 cat > "$_KST_PY" << 'PYEOF'
@@ -46,7 +49,7 @@ pretty_kst() {
 }
 
 echo "======================================"
-echo " ContentGuard AI — 웹훅 데모"
+echo " ContentGuard AI — 웹훅 데모 (제출)"
 echo " Ctrl+C 로 종료"
 echo "======================================"
 echo ""
@@ -59,8 +62,8 @@ while true; do
   read -p "분석할 텍스트를 입력하세요: " SAMPLE_TEXT
   echo ""
 
-  # 1. 데모 DB에 리뷰 제출 → demo-client가 ContentGuard에 분석 요청 (백그라운드)
-  echo "[1/3] 리뷰 제출 (데모 DB 저장 + ContentGuard 분석 백그라운드 시작)"
+  # 1. 데모 DB에 리뷰 제출 → ContentGuard 분석 백그라운드 시작
+  echo "[1/2] 리뷰 제출 (데모 DB 저장 + ContentGuard 분석 요청)"
   echo "      텍스트: $SAMPLE_TEXT"
   echo ""
   RESULT=$(curl -s -X POST "$RECEIVER_URL/reviews" \
@@ -79,7 +82,7 @@ while true; do
     if [ "$STATUS" = "PENDING" ]; then
       break
     fi
-    echo -ne "      대기 중... ${i}초\r"
+    echo -ne "      분석 대기 중... ${i}초\r"
     sleep 3
   done
   echo ""
@@ -91,18 +94,18 @@ while true; do
   curl -s "$RECEIVER_URL/reviews/$CONTENT_ID" | pretty_kst
   echo ""
 
-  # 2. 대시보드에서 심사하도록 안내
-  echo "[2/3] ContentGuard 대시보드에서 '$CONTENT_ID' 콘텐츠를 심사하세요."
+  # content_id 저장 — demo_watch.sh가 읽어서 심사 결과 감시
+  echo "$CONTENT_ID" > .demo_last_id
+
+  # 2. 심사 안내
+  echo "[2/2] 대시보드에서 '$CONTENT_ID' 콘텐츠를 심사하세요."
   echo "      http://localhost:3000/queue"
   echo ""
-  read -p "      심사 완료 후 Enter를 누르세요..."
+  echo "      심사 완료 시 웹훅이 자동으로 데모 DB에 반영됩니다."
+  echo "      결과 확인: bash demo_watch.sh"
+  echo ""
+  echo "══════════════════════════════════════════"
   echo ""
 
-  # 3. 웹훅 수신 후 데모 DB 반영 결과 확인
-  echo "[3/3] 심사 결과 → 데모 DB 반영 확인"
-  curl -s "$RECEIVER_URL/reviews/$CONTENT_ID" | pretty_kst
-  echo ""
-
-  echo ""
   ROUND=$(( ROUND + 1 ))
 done
