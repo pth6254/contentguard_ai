@@ -1,5 +1,5 @@
 #!/bin/bash
-# 웹훅 데모 — Phase 1: 리뷰 제출 + AI 분석 결과 확인
+# 웹훅 데모 — 리뷰 제출 + AI 분석 결과 확인
 #
 # 사전 준비:
 #   1. docker-compose up -d
