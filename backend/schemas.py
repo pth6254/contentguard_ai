@@ -147,6 +147,12 @@ class ContentStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class StatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int]
+    by_level: dict[str, int]
+
+
 class ModelPredictionResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
 

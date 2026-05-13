@@ -4,7 +4,7 @@ import { RefreshCw } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { api, type Content, type RiskLevel, type ReviewStatus } from "@/lib/api"
+import { api, type Content, type RiskLevel, type ReviewStatus, type Stats } from "@/lib/api"
 
 const REFRESH_INTERVAL = 30_000
 
@@ -18,8 +18,7 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 
 export default function DashboardPage() {
   const [recent, setRecent]       = useState<Content[]>([])
-  const [stats, setStats]         = useState({ total: 0, pending: 0, approved: 0, removed: 0, held: 0 })
-  const [levelCounts, setLevelCounts] = useState<Record<RiskLevel, number>>({ LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 })
+  const [stats, setStats]         = useState<Stats | null>(null)
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
@@ -28,20 +27,11 @@ export default function DashboardPage() {
   useEffect(() => {
     setLoading(true)
     Promise.all([
+      api.getStats(),
       api.getContents({ limit: 5 }),
-      api.getContents({ limit: 1 }),
-      api.getContents({ status: "PENDING",  limit: 1 }),
-      api.getContents({ status: "APPROVED", limit: 1 }),
-      api.getContents({ status: "REMOVED",  limit: 1 }),
-      api.getContents({ status: "HELD",     limit: 1 }),
-      api.getContents({ risk_level: "LOW",      limit: 1 }),
-      api.getContents({ risk_level: "MEDIUM",   limit: 1 }),
-      api.getContents({ risk_level: "HIGH",     limit: 1 }),
-      api.getContents({ risk_level: "CRITICAL", limit: 1 }),
-    ]).then(([recentR, totalR, pendingR, approvedR, removedR, heldR, lowR, medR, highR, critR]) => {
+    ]).then(([s, recentR]) => {
+      setStats(s)
       setRecent(recentR.items)
-      setStats({ total: totalR.total, pending: pendingR.total, approved: approvedR.total, removed: removedR.total, held: heldR.total })
-      setLevelCounts({ LOW: lowR.total, MEDIUM: medR.total, HIGH: highR.total, CRITICAL: critR.total })
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e))
     }).finally(() => setLoading(false))
@@ -55,16 +45,17 @@ export default function DashboardPage() {
 
   const levelData = (["LOW", "MEDIUM", "HIGH", "CRITICAL"] as RiskLevel[]).map(level => ({
     level,
-    count: levelCounts[level],
+    count: stats?.by_level[level] ?? 0,
     fill: LEVEL_COLOR[level],
   }))
 
+  const pending = stats?.by_status["PENDING"] ?? 0
   const metrics = [
-    { label: "전체 콘텐츠", value: stats.total },
-    { label: "심사 대기",   value: stats.pending,  highlight: stats.pending > 0 },
-    { label: "승인",        value: stats.approved },
-    { label: "삭제",        value: stats.removed },
-    { label: "보류",        value: stats.held },
+    { label: "전체 콘텐츠", value: stats?.total ?? 0 },
+    { label: "심사 대기",   value: pending,  highlight: pending > 0 },
+    { label: "승인",        value: stats?.by_status["APPROVED"] ?? 0 },
+    { label: "삭제",        value: stats?.by_status["REMOVED"]  ?? 0 },
+    { label: "보류",        value: stats?.by_status["HELD"]     ?? 0 },
   ]
 
   return (

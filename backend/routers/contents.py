@@ -2,16 +2,27 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth import require_operator
 from database import get_db
 from models import Content, ModelPrediction
-from schemas import ContentResponse, ModelPredictionResponse
+from schemas import ContentResponse, ModelPredictionResponse, StatsResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["contents"], dependencies=[Depends(require_operator)])
+
+
+@router.get("/stats", response_model=StatsResponse)
+def get_stats(db: Session = Depends(get_db)):
+    status_rows = db.query(Content.review_status, func.count()).group_by(Content.review_status).all()
+    level_rows  = db.query(Content.risk_level,    func.count()).group_by(Content.risk_level).all()
+    by_status   = {row[0]: row[1] for row in status_rows}
+    by_level    = {row[0]: row[1] for row in level_rows}
+    total       = sum(by_status.values())
+    return StatsResponse(total=total, by_status=by_status, by_level=by_level)
 
 
 @router.get("/contents", response_model=List[ContentResponse])
