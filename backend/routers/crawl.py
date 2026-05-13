@@ -104,6 +104,14 @@ def _stream(
 
             evidence_spans = extract_evidence_spans(masked_text, category_scores)
 
+            # HIGH/CRITICAL 심층 분석 (LLM_DEEP_ANALYSIS=true 시 활성)
+            deep_analysis = None
+            if settings.LLM_DEEP_ANALYSIS and final_grade in ("HIGH", "CRITICAL"):
+                from services.deep_analysis import analyze_deeply
+                deep_analysis = analyze_deeply(
+                    text, final_grade, category_scores, triggered_rules, evidence_spans
+                )
+
             explanation_json = {
                 "summary":                    llm_result.get("summary", ""),
                 "score_explanation":          llm_result.get("score_explanation", ""),
@@ -112,6 +120,8 @@ def _stream(
                 "recommended_operator_check": llm_result.get("recommended_operator_check", ""),
                 "confidence_note":            llm_result.get("confidence_note", ""),
             }
+            if deep_analysis:
+                explanation_json["deep_analysis"] = deep_analysis
 
             record = save_analysis(
                 db, content_id, text, client_id, [], final,

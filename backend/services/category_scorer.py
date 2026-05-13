@@ -263,18 +263,3 @@ def compute_category_scores(text: str) -> dict[str, int]:
     return scores
 
 
-def compute_calibrated_score(
-    model_score: float,
-    category_scores: dict[str, int],
-) -> float:
-    """
-    ML 모델 점수와 카테고리 최고점을 가중 조합해 보정된 최종 점수를 산출한다.
-    가중치는 환경변수(SCORE_WEIGHT_MODEL / SCORE_WEIGHT_CATEGORY)로 조정 가능하다.
-    """
-    from config import settings
-    w_model = getattr(settings, "SCORE_WEIGHT_MODEL", 0.7)
-    w_cat   = getattr(settings, "SCORE_WEIGHT_CATEGORY", 0.3)
-
-    max_cat = max(category_scores.values()) / 100.0 if category_scores else 0.0
-    combined = w_model * float(model_score) + w_cat * max_cat
-    return round(min(1.0, max(0.0, combined)), 3)

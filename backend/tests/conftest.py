@@ -24,7 +24,6 @@ from database import Base, get_db
 from main import app
 from models import Client, Operator
 from auth import get_client, get_client_or_operator, get_current_operator, require_operator
-from services.prediction_service import prediction_service
 
 _test_engine = create_engine(
     f"sqlite:///{_TEST_DB_PATH}",

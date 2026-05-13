@@ -6,28 +6,21 @@ AI 기반 콘텐츠 위험도 분석 및 운영자 심사 시스템
 
 ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고, 운영자가 최종 판단을 내릴 수 있도록 지원하는 Human-in-the-loop 콘텐츠 모더레이션 시스템입니다.
 
-**핵심 철학: AI가 판단하고, LLM이 설명하고, 사람이 결정한다.**
-
-> **v2 업데이트**: 카테고리별 위험 점수 / 강제 승격 규칙 / PII 마스킹 / LLM 구조화 설명(JSON) 추가
+**핵심 철학: LLM이 분류하고, LLM이 설명하고, 사람이 결정한다.**
 
 ## 주요 기능
 
-- **카테고리별 위험 점수**: profanity / threat / sexual / privacy / spam / self_harm / policy_violation — 각 0-100점 독립 산정
-- **강제 승격 규칙**: PII 탐지 → 최소 HIGH, 자해 표현 → 최소 CRITICAL 등 규칙 기반 등급 하한선 적용
+- **LLM 분류기**: `classify_and_explain()` 단일 호출로 위험 등급·점수·설명 JSON을 동시 생성. Ollama NO_THINK(`think=False`) 항상 활성으로 추론 속도 최적화
+- **카테고리별 위험 점수**: profanity / threat / sexual / privacy / spam / self_harm / policy_violation — 각 0-100점 독립 산정 (LLM 힌트로 활용)
+- **강제 승격 규칙**: PII 탐지 → 최소 HIGH, 자해 표현 → 최소 CRITICAL 등 규칙 기반 등급 하한선 적용 (LLM 판단보다 우선)
 - **PII 마스킹**: 전화번호·이메일·주민번호·카드번호를 LLM 전달 전 자동 마스킹
-- **LLM 구조화 설명(JSON)**: 점수/등급은 ML이 결정, LLM은 근거 설명만 담당. 검증 실패 시 fallback 생성
-- **보정 점수**: ML 점수 × w + 카테고리 최고점 × w 조합 (`SCORE_WEIGHT_MODEL` / `SCORE_WEIGHT_CATEGORY` 환경변수)
 - **Evidence Span**: 위험 판단 근거 문구의 위치(start/end index)와 심각도를 함께 반환
-- **다중 ML 모델**: Ridge Regression / Linear SVM / Logistic Regression 동시 실행 및 결과 저장
-- **모델 플러그인 구조**: `BaseMLModel` 인터페이스로 새 모델을 코드 최소 변경으로 추가 가능
-- **Shadow Mode**: primary 모델 외 나머지 모델은 shadow 실행 — 결과에 영향 없이 비교 데이터 축적
-- **Decision Policy**: `primary_only` / `conservative` / `ensemble_mean` / `majority_vote` 정책 선택 가능
-- **LLM 설명 생성**: 위험 판단 근거를 한국어로 설명. HIGH/CRITICAL은 즉시, MEDIUM/LOW는 백그라운드 생성
-- **멀티 LLM 프로바이더**: 텍스트 추출·설명 생성 작업별로 Ollama / OpenAI / Anthropic / Gemini / DeepSeek 독립 설정
+- **HIGH/CRITICAL 심층 분석**: `LLM_DEEP_ANALYSIS=true` 시 활성. is_targeted, is_immediate, actionability 등 추가 판단 (기본 비활성)
+- **멀티 LLM 프로바이더**: 텍스트 추출·분류·설명 작업별로 Ollama / OpenAI / Anthropic / Gemini / DeepSeek 독립 설정
 - **3단계 하이브리드 텍스트 추출**: BeautifulSoup(CSS 패턴) → Trafilatura → LLM 폴백 순으로 댓글·리뷰 추출
 - **운영자 심사 시스템**: PENDING → 승인/삭제/보류/모니터링 워크플로우
 - **심사 결과 재변경**: 이미 심사한 콘텐츠의 판단을 이력 페이지에서 언제든 수정 가능
-- **콘텐츠 삭제**: 운영자가 이력 페이지에서 콘텐츠 레코드 및 관련 예측 결과 일괄 삭제
+- **콘텐츠 삭제**: 운영자가 이력 페이지에서 콘텐츠 레코드 일괄 삭제
 - **아웃바운드 웹훅**: 심사 완료 시 클라이언트 서비스로 자동 POST 발송 (BackgroundTasks 비동기 처리)
 - **JWT 인증**: 운영자·클라이언트 계정 분리, 로그인 기반 JWT 발급
 - **클라이언트 자가 가입**: 이메일+비밀번호로 회원가입 후 직접 API 키 발급·관리
@@ -39,7 +32,6 @@ ContentGuard AI는 텍스트 콘텐츠의 위험도를 자동으로 분석하고
 - **KST 시간 표시**: 프론트엔드에서 UTC 타임스탬프를 한국 시간(KST, +09:00)으로 변환 표시
 - **파일 일괄 업로드**: CSV / Excel / JSON / TXT 업로드 후 일괄 분석 (최대 1,000건)
 - **웹 크롤링 파이프라인**: Firecrawl 수집 → 3단계 텍스트 추출 → ContentGuard 분석 (SSE 스트리밍)
-- **Active Learning**: 운영자 판단과 모델 예측의 불일치 건을 추출해 재학습 데이터로 활용
 - **Rate Limiting**: IP 기반 요청 수 제한으로 남용 방지
 - **DB 마이그레이션**: Alembic으로 스키마 변경 이력 관리 및 안전한 운영 DB 적용
 
@@ -53,7 +45,7 @@ contentguard_ai/
 │   ├── auth.py               # JWT / API 키 / 운영자 인증
 │   ├── limiter.py            # slowapi Rate Limiter
 │   ├── database.py           # SQLAlchemy DB 연결
-│   ├── models.py             # ORM 모델 (clients, operators, api_keys, contents, model_predictions)
+│   ├── models.py             # ORM 모델 (clients, operators, api_keys, contents)
 │   ├── schemas.py            # Pydantic 요청/응답 스키마
 │   ├── migrations/           # Alembic 마이그레이션
 │   ├── routers/
@@ -67,15 +59,13 @@ contentguard_ai/
 │   │   ├── active_learning.py      # GET /api/active-learning/candidates
 │   │   └── admin.py                # /admin/* (운영자 전용, 웹훅 URL 관리 포함)
 │   ├── services/
-│   │   ├── content_service.py          # save_analysis() — DB 저장 공통 로직
-│   │   ├── prediction_service.py       # ModelRegistry + BaseMLModel 인터페이스
-│   │   ├── llm_service.py              # 멀티 프로바이더 LLM + generate_explanation_json()
-│   │   ├── risk_service.py             # 등급 분류 / 권장 조치 규칙
+│   │   ├── llm_service.py              # 멀티 프로바이더 LLM + classify_and_explain()
+│   │   ├── category_scorer.py          # 카테고리별 0-100점 산정 (LLM 힌트용)
 │   │   ├── rule_detector.py            # PII 마스킹 + 강제 승격 규칙 탐지
-│   │   ├── category_scorer.py          # 카테고리별 0-100점 산정 + calibrated_score
-│   │   ├── evidence_service.py         # Evidence span 추출
 │   │   ├── decision_policy_service.py  # apply_forced_escalation()
-│   │   └── explanation_validator.py    # LLM JSON 응답 검증 + fallback 생성
+│   │   ├── evidence_service.py         # Evidence span 추출
+│   │   ├── deep_analysis.py            # HIGH/CRITICAL 심층 분석 (선택적)
+│   │   └── content_service.py          # save_analysis() — DB 저장 공통 로직
 │   └── tests/
 │       ├── unit/
 │       └── integration/
@@ -108,41 +98,45 @@ contentguard_ai/
 └── requirements.txt
 ```
 
-## v2 점수·등급 산정 흐름 (POST /api/analyze)
+## 분석 파이프라인 (POST /api/analyze)
 
 ```
 입력 텍스트
     │
-    ├─ [1] PII 마스킹        mask_pii()          전화번호·이메일·주민번호 → [태그] 치환
-    │                                            → masked_text, detected_pii
+    ├─ [1] PII 마스킹            mask_pii()
+    │                            전화번호·이메일·주민번호·카드번호 → [태그] 치환
+    │                            → masked_text, detected_pii
     │
-    ├─ [2] ML 예측           predict_all()       TF-IDF × 3 모델 병렬 실행
-    │                        get_final_result()  Decision Policy 적용
-    │                                            → raw_model_score (0.0–1.0)
+    ├─ [2] 카테고리 점수          compute_category_scores()
+    │                            7개 카테고리 키워드 매칭 → {profanity:0-100, ...}
+    │                            LLM 분류 힌트로만 활용
     │
-    ├─ [3] 카테고리 점수     compute_category_scores()
-    │                        7개 카테고리 × 키워드 매칭 → {profanity:0-100, ...}
+    ├─ [3] 규칙 탐지              detect_rules()
+    │                            PII 패턴·직접 위협·자해·피싱·도킹 탐지
+    │                            → triggered_rules
     │
-    ├─ [4] 보정 점수         compute_calibrated_score()
-    │                        calibrated = raw × 0.7 + max(categories)/100 × 0.3
-    │                        (가중치 SCORE_WEIGHT_MODEL / SCORE_WEIGHT_CATEGORY 환경변수)
+    ├─ [4] LLM 1차 분류 + 설명   classify_and_explain()   ← 핵심 단계
+    │                            NO_THINK(think=False) 항상 활성
+    │                            입력: masked_text + category_hints + triggered_rules
+    │                            출력: risk_level, risk_score, category_scores,
+    │                                  summary, score_explanation, main_reasons,
+    │                                  evidence, recommended_operator_check, confidence_note
     │
-    ├─ [5] 강제 승격         detect_rules() + apply_forced_escalation()
-    │                        PII → 최소 HIGH, 자해 → 최소 CRITICAL 등
-    │                        → final_score, final_grade (LLM이 변경 불가)
+    ├─ [5] 강제 승격              apply_forced_escalation()
+    │                            triggered_rules 기반 등급 하한선 적용
+    │                            → final_score, final_grade (LLM 판단보다 우선)
     │
-    ├─ [6] Evidence Span     extract_evidence_spans()
-    │                        masked_text에서 위험 키워드 위치 추출
-    │                        → [{text, category, severity, start_index, end_index}]
+    ├─ [6] Evidence Span         extract_evidence_spans()
+    │                            masked_text에서 위험 키워드 위치 추출
+    │                            → [{text, category, severity, start_index, end_index}]
     │
-    └─ [7] LLM 설명 생성     generate_explanation_json()
-           ├─ LLM에 전달: masked_text + final_score/grade + category_scores
-           │               + triggered_rules + evidence_spans
-           ├─ LLM 출력: JSON {summary, score_explanation, main_reasons,
-           │                   evidence, recommended_operator_check, confidence_note}
-           ├─ 검증:      validate_explanation() — PII 포함 여부, 스키마 검사
-           └─ 실패 시:   build_fallback_explanation() — 결정론적 대체 설명
+    └─ [7] 심층 분석 (선택적)     analyze_deeply()
+           LLM_DEEP_ANALYSIS=true 이고 final_grade가 HIGH/CRITICAL 일 때만 실행
+           is_targeted, is_immediate, actionability 등 추가 판단
+           → deep_analysis (explanation_json에 병합)
 ```
+
+`/api/crawl`도 항목별로 동일한 파이프라인을 적용합니다.
 
 ### 강제 승격 규칙 (triggered_rules)
 
@@ -154,10 +148,13 @@ contentguard_ai/
 | `PHISHING_LINK` | login/verify/secure 경로 포함 URL | HIGH |
 | `DOXXING` | "신상털", "집주소 알아냈" 등 개인정보 공개 의도 | HIGH |
 
-### LLM 설명 JSON 스키마
+### LLM 출력 JSON 스키마
 
 ```json
 {
+  "risk_level": "HIGH",
+  "risk_score": 0.78,
+  "category_scores": {"threat": 90, "profanity": 65, ...},
   "summary": "한 문장 요약",
   "score_explanation": "점수·등급 산정 이유",
   "main_reasons": ["핵심 이유 1", "핵심 이유 2"],
@@ -180,8 +177,7 @@ contentguard_ai/
 | 백엔드 | FastAPI, Uvicorn |
 | 인증 | JWT (python-jose), bcrypt (passlib) |
 | 데이터베이스 | PostgreSQL 17, SQLAlchemy ORM, Alembic |
-| ML 모델 | scikit-learn (TF-IDF + Ridge / LinearSVR / Logistic Regression) |
-| LLM | Ollama / OpenAI / Anthropic / Gemini / DeepSeek |
+| LLM | Ollama (≥0.6.0) / OpenAI / Anthropic / Gemini / DeepSeek |
 | 텍스트 추출 | BeautifulSoup4, Trafilatura, LLM (3단계 하이브리드) |
 | 웹훅 | httpx (비동기 아웃바운드), FastAPI BackgroundTasks |
 | 프론트엔드 | Next.js 14, TypeScript, Tailwind CSS |
@@ -219,7 +215,7 @@ POST   /api/reviews/{id}            →  심사 처리 (operator JWT) → 웹훅
 GET    /admin/clients               →  클라이언트 목록 (operator JWT)
 POST   /admin/clients               →  클라이언트 생성 (operator JWT)
 PATCH  /admin/clients/{id}          →  클라이언트 이름 수정 (operator JWT)
-DELETE /admin/clients/{id}          →  클라이언트 삭제 (operator JWT)
+DELETE /admin/clients/{id}          →  클라이언트 삭제 (API 키 포함)
 PATCH  /admin/clients/{id}/webhook  →  웹훅 URL 등록·수정 (operator JWT)
 ```
 
@@ -328,36 +324,6 @@ bash demo.sh
 | 웹훅 수신 서버 | http://localhost:9000/webhook |
 | 수신 로그 확인 | http://localhost:9000/logs |
 
-## ML 모델 구조
-
-### 등록된 모델
-
-학습 데이터 500개, 테스트셋 100개(20%), TF-IDF char n-gram(2~4) 기준 실측값.
-
-| 모델 | 역할 | 정확도 | F1 (macro) | MAE | R² |
-|------|------|:------:|:----------:|:---:|:--:|
-| `logistic_regression` | primary (최종 판단) | **90.0%** | **88.7%** | — | — |
-| `linear_svm` | shadow | 77.0% | 73.6% | 0.102 | 0.870 |
-| `tfidf_ridge` | shadow | 62.0% | 60.1% | 0.134 | 0.808 |
-
-#### Logistic Regression 등급별 성능 (primary 모델)
-
-| 등급 | Precision | Recall | F1 | Support |
-|------|:---------:|:------:|:--:|:-------:|
-| LOW | 0.94 | 0.83 | 0.88 | 35 |
-| MEDIUM | 0.75 | 0.88 | 0.81 | 17 |
-| HIGH | 0.88 | 0.88 | 0.88 | 16 |
-| CRITICAL | 0.97 | 1.00 | 0.98 | 32 |
-
-### Decision Policy
-
-| 정책 | 동작 |
-|------|------|
-| `primary_only` | primary 모델 결과만 사용 (기본) |
-| `conservative` | 전체 모델 중 가장 높은 위험 점수 채택 |
-| `ensemble_mean` | 전체 모델 점수 평균 |
-| `majority_vote` | 위험 등급 다수결 |
-
 ## 위험 등급 기준
 
 | 등급 | 점수 범위 | 권장 조치 |
@@ -388,7 +354,8 @@ bash demo.sh
 ### 사전 요구사항
 
 - Docker (WSL 기반 권장)
-- Ollama (Windows에서 실행, `qwen3.5:9b` 모델 권장)
+- Ollama ≥ 0.6.0 (Windows에서 실행, `qwen3.5:9b` 모델 권장)
+  - `think=False` 파라미터 지원 버전 필요 (NO_THINK 기능)
 
 ### Docker로 실행 (권장)
 
@@ -454,16 +421,16 @@ JWT_SECRET_KEY=랜덤하고-충분히-긴-문자열  # openssl rand -hex 32
 OPERATOR_EMAIL=admin@example.com
 OPERATOR_PASSWORD=your-password
 
-# LLM (필수)
-LLM_PROVIDER_EXTRACT=ollama
+# LLM 분류·설명 (필수)
 LLM_PROVIDER_EXPLAIN=ollama
+LLM_PROVIDER_EXTRACT=ollama
 OLLAMA_BASE_URL=http://172.18.144.1:11434
 OLLAMA_MODEL=qwen3.5:9b
+LLM_MAX_TOKENS=800
 
-# 기타
-FIRECRAWL_API_KEY=fc-xxxxxxxx
-MODEL_PRIMARY=logistic_regression
-DECISION_POLICY=primary_only
+# 선택적 기능
+LLM_DEEP_ANALYSIS=false       # HIGH/CRITICAL 심층 분석 활성화
+FIRECRAWL_API_KEY=fc-xxxxxxxx # 웹 크롤링 기능
 
 # 웹훅 데모 (어드민 페이지에서 발급 후 입력)
 DEMO_CLIENT_API_KEY=cg-xxxxxxxx
@@ -486,7 +453,6 @@ cd dashboard && npm install && npm run dev
 
 ```bash
 pytest
-# 200개 이상 테스트 (통합 + 유닛)
 ```
 
 ## 환경변수 전체 목록
@@ -498,10 +464,14 @@ pytest
 | `JWT_EXPIRE_MINUTES` | | JWT 만료 시간 (기본 1440 = 24시간) |
 | `OPERATOR_EMAIL` | | 초기 운영자 이메일 (최초 실행 시 자동 생성) |
 | `OPERATOR_PASSWORD` | | 초기 운영자 비밀번호 |
+| `LLM_PROVIDER_EXPLAIN` | ✅ | 분류·설명 LLM 프로바이더 (`ollama` / `openai` / `anthropic` / `gemini` / `deepseek`) |
+| `LLM_MODEL_EXPLAIN` | | 분류·설명 모델명 (미설정 시 프로바이더 기본값) |
 | `LLM_PROVIDER_EXTRACT` | ✅ | 텍스트 추출용 LLM 프로바이더 |
 | `LLM_MODEL_EXTRACT` | | 추출 모델명 (미설정 시 프로바이더 기본값) |
-| `LLM_PROVIDER_EXPLAIN` | ✅ | 설명 생성용 LLM 프로바이더 |
-| `LLM_MODEL_EXPLAIN` | | 설명 모델명 (미설정 시 프로바이더 기본값) |
+| `LLM_MAX_TOKENS` | | LLM 최대 출력 토큰 수 (기본 800) |
+| `LLM_TEMPERATURE_EXPLAIN` | | 분류·설명 온도 (기본 0.1) |
+| `LLM_TEMPERATURE_EXTRACT` | | 추출 온도 (기본 0.1) |
+| `LLM_DEEP_ANALYSIS` | | HIGH/CRITICAL 심층 분석 활성화 (기본 `false`) |
 | `OLLAMA_BASE_URL` | | Ollama 서버 주소 |
 | `OLLAMA_MODEL` | | Ollama 기본 모델명 |
 | `OPENAI_API_KEY` | | OpenAI 사용 시 |
@@ -509,8 +479,6 @@ pytest
 | `GEMINI_API_KEY` | | Gemini 사용 시 |
 | `DEEPSEEK_API_KEY` | | DeepSeek 사용 시 |
 | `FIRECRAWL_API_KEY` | | 웹 크롤링 기능 사용 시 |
-| `MODEL_PRIMARY` | | primary 모델명 (기본 `logistic_regression`) |
-| `DECISION_POLICY` | | 판단 정책 (기본 `primary_only`) |
 | `ALLOWED_ORIGINS` | | CORS 허용 도메인 (기본 `http://localhost:3000`) |
 | `ADMIN_SECRET` | | 레거시 운영자 인증 (하위 호환용) |
 | `DEMO_CLIENT_API_KEY` | | 웹훅 데모용 클라이언트 API 키 |
@@ -536,7 +504,7 @@ pytest
 | POST | `/api/analyze` | 콘텐츠 위험도 분석 (60회/시간) |
 | GET | `/api/contents/{id}/status` | 내 콘텐츠 심사 상태 조회 |
 | POST | `/api/upload` | 파일 일괄 업로드·분석 |
-| POST | `/api/crawl` | URL 크롤링·분석 SSE 스트리밍 |
+| POST | `/api/crawl` | URL 크롤링·분석 SSE 스트리밍 (10회/시간) |
 
 ### 운영자 전용 (operator JWT)
 
@@ -544,8 +512,7 @@ pytest
 |--------|------|------|
 | GET | `/api/contents` | 콘텐츠 목록 (페이지네이션·검색·필터) |
 | GET | `/api/contents/{id}` | 콘텐츠 단건 조회 |
-| GET | `/api/contents/{id}/predictions` | 모델별 예측 결과 |
-| DELETE | `/api/contents/{id}` | 콘텐츠 및 예측 결과 삭제 |
+| DELETE | `/api/contents/{id}` | 콘텐츠 삭제 |
 | POST | `/api/reviews/{id}` | 심사 결과 제출 → 웹훅 자동 발송 |
 | GET | `/api/active-learning/candidates` | 재학습 후보 조회 |
 | POST | `/admin/clients` | 클라이언트 생성 |
@@ -584,18 +551,20 @@ pytest
 | Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
 
-추출·설명을 서로 다른 프로바이더로 설정할 수 있습니다:
+추출·분류를 서로 다른 프로바이더로 설정할 수 있습니다:
 
 ```env
 # 텍스트 추출: 로컬 Ollama (비용 절감)
 LLM_PROVIDER_EXTRACT=ollama
 LLM_MODEL_EXTRACT=qwen2.5:7b
 
-# 설명 생성: Claude Haiku (품질 향상)
+# 분류·설명: Claude Haiku (품질 향상)
 LLM_PROVIDER_EXPLAIN=anthropic
 LLM_MODEL_EXPLAIN=claude-haiku-4-5-20251001
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
 ```
+
+> **Ollama 사용 시 주의**: `ollama>=0.6.0` 필요 (`think=False` 파라미터 지원). `pip install "ollama>=0.6.0"`
 
 ## DB 마이그레이션
 
@@ -617,26 +586,85 @@ alembic downgrade -1
 2. `a3f192c8d041` — 인증 모델 추가 (clients.email/password_hash, operators 테이블)
 3. `b7e4d1f9a023` — 웹훅 추가 (clients.webhook_url)
 
-## Active Learning
-
-```bash
-# 불일치 후보 내보내기
-python scripts/export_active_learning.py
-
-# 모델 재학습
-python scripts/train.py
-```
-
-| 운영자 결정 | 재학습 점수 |
-|------------|------------|
-| approve | 0.10 (LOW) |
-| monitor | 0.44 (MEDIUM) |
-| hold | 0.72 (HIGH) |
-| remove | 0.92 (CRITICAL) |
-
 ## 헬스체크
 
 ```bash
 curl http://localhost:8000/health
 # {"status": "ok", "db": "ok", "ollama": "ok"}
 ```
+
+---
+
+## 업데이트 내역
+
+### v2.0 (2026-05-13) — LLM 1차 분류기 도입, ML 완전 제거
+
+- ML 모델(Ridge Regression, LinearSVM, Logistic Regression) 전체 제거
+- `classify_and_explain()` — LLM 단일 호출로 위험 등급·점수·설명 JSON 동시 생성
+- Ollama `think=False` API 파라미터로 NO_THINK 항상 활성화 (ollama≥0.6.0 필요)
+- 카테고리 점수(`compute_category_scores`)를 LLM 분류 힌트 전용으로 역할 변경 (게이트 제거)
+- `/api/analyze`와 `/api/crawl` 동일 파이프라인 적용
+- 데드 코드 제거: `prediction_service`, `context_review`, `tiebreaker`, `explanation_validator`
+- 관련 환경변수 제거: `SCORE_WEIGHT_MODEL`, `SCORE_WEIGHT_CATEGORY`, `LLM_CONTEXT_REVIEW`, `LLM_TIEBREAKER_*`
+
+### v1.6 (2026-05-13) — 분류 정밀도 + 큐 개선
+
+- PII 마스킹 기반 보정 점수(`calibrated_score`) 산정
+- Evidence Span 추출 — 위험 근거 문구 위치(start/end index)·심각도 반환
+- Ollama NO_THINK 환경변수 지원 (`OLLAMA_NO_THINK_EXTRACT` 등)
+- HIGH/CRITICAL 케이스 심층 분석 (`deep_analysis`, `LLM_DEEP_ANALYSIS` 환경변수)
+- LLM 컨텍스트 리뷰·타이브레이커·심층 분석 유닛 테스트 추가
+- 심사 큐 콘텐츠 삭제 기능 (확인 다이얼로그 포함)
+- 통계 엔드포인트 (`GET /api/stats`) + 대시보드 통계 카드
+- 일괄 심사 처리 (bulk review actions)
+
+### v1.5 (2026-05-12) — 웹훅 + 어드민 CRUD + LLM 설명 고도화
+
+- 클라이언트별 웹훅 URL 등록 및 심사 완료 시 자동 POST 발송
+- 클라이언트 CRUD — 등록·이름 수정·삭제, 운영자가 API 키 발급·비활성화
+- 운영자 심사 시 백그라운드 LLM 설명 생성 (BackgroundTasks)
+- LLM 컨텍스트 리뷰 — MEDIUM 케이스 재분석으로 정밀도 향상
+- LLM 타이브레이커 — MEDIUM 최종 등급 결정
+- demo-receiver DB 연동, 심사 결과 수신 엔드포인트 추가
+- 데모 스크립트 KST 타임스탬프 출력, 샘플 텍스트 31종으로 확장
+- Logistic Regression 성능 지표 보완 (F1 score, 등급별 분류 리포트)
+
+### v1.4 (2026-05-11) — LLM 멀티 프로바이더 + 클라이언트 인증
+
+- Ollama / OpenAI / Anthropic / Gemini / DeepSeek 멀티 프로바이더 지원
+- 텍스트 추출·설명 생성 전용 LLM 분리 (`LLM_PROVIDER_EXTRACT` / `LLM_PROVIDER_EXPLAIN`)
+- `save_analysis()` 공통 서비스 추출 — analyze·crawl·upload 라우터 리팩터
+- 클라이언트 회원가입·로그인·JWT 발급 (`POST /auth/signup`, `POST /auth/login`)
+- API 키 발급·목록·비활성화 엔드포인트
+
+### v1.3 (2026-05-08) — Docker + DB 마이그레이션
+
+- Docker Compose 구성 (backend, dashboard, db, pgAdmin, demo-receiver)
+- Alembic DB 마이그레이션 — 백엔드 시작 시 `upgrade head` 자동 실행
+- 초기 운영자 계정 자동 시드 (`OPERATOR_EMAIL` / `OPERATOR_PASSWORD`)
+- Next.js rewrites를 통한 프록시 구조 — 브라우저에서 백엔드 직접 접근 불필요
+
+### v1.2 (2026-05-07) — 데이터 수집 + 운영자 인증
+
+- CSV / Excel / JSON / TXT 파일 일괄 업로드·분석 (최대 1,000건)
+- Firecrawl 웹 크롤링 파이프라인 (SSE 스트리밍) — 3단계 텍스트 추출
+- 운영자 전용 엔드포인트 인증 (`require_operator`)
+- 콘텐츠 심사 재변경 — 이미 처리한 건의 판단을 이력 페이지에서 수정
+- 대시보드 통계·최근 콘텐츠 표시 개선
+
+### v1.1 (2026-05-06) — ML 다중 모델 + 대시보드
+
+- Ridge Regression, LinearSVM, Logistic Regression 3모델 병렬 실행
+- Decision Policy — `primary_only` / `conservative` / `ensemble_mean` / `majority_vote`
+- `ModelPrediction` DB 테이블 — 모델별 예측 결과 저장
+- Active Learning — 운영자 판단↔모델 예측 불일치 건 추출 (`GET /api/active-learning/candidates`)
+- Next.js 대시보드 초기 구성 (TypeScript, Tailwind CSS)
+- 통합·유닛 테스트 기반 구축
+
+### v1.0 (2026-05-04) — 초기 릴리즈
+
+- FastAPI 기반 콘텐츠 위험도 분석 API (`POST /api/analyze`)
+- TF-IDF + Logistic Regression ML 분류기
+- PostgreSQL + SQLAlchemy ORM
+- pgAdmin 연동
+- 위험 등급 4단계: LOW / MEDIUM / HIGH / CRITICAL

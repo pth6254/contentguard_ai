@@ -43,23 +43,9 @@ class Settings:
 
     FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
 
-    # 카테고리/모델 점수 조합 가중치 (합계 = 1.0 권장)
-    SCORE_WEIGHT_MODEL: float = float(os.getenv("SCORE_WEIGHT_MODEL", "0.7"))
-    SCORE_WEIGHT_CATEGORY: float = float(os.getenv("SCORE_WEIGHT_CATEGORY", "0.3"))
-
     # LLM 온도 — explain은 JSON 일관성을 위해 낮게, extract는 정밀 추출을 위해 낮게
     LLM_TEMPERATURE_EXPLAIN: float = float(os.getenv("LLM_TEMPERATURE_EXPLAIN", "0.1"))
     LLM_TEMPERATURE_EXTRACT: float = float(os.getenv("LLM_TEMPERATURE_EXTRACT", "0.1"))
-
-    # LLM 맥락 검토 — true로 설정하면 LLM이 텍스트 의도를 평가해 점수를 최대 -0.30 조정
-    # 레이턴시 +1~3초, LLM 호출 1회 추가. 기본 비활성.
-    LLM_CONTEXT_REVIEW: bool = os.getenv("LLM_CONTEXT_REVIEW", "false").lower() == "true"
-
-    # MEDIUM 구간 LLM tiebreaker — MEDIUM 점수에서만 LLM을 호출해 LOW/MEDIUM/HIGH 재분류
-    # 명확한 케이스(LOW·HIGH)는 호출 건너뜀. 기본 비활성.
-    LLM_TIEBREAKER: bool  = os.getenv("LLM_TIEBREAKER", "false").lower() == "true"
-    LLM_TIEBREAKER_MIN: float = float(os.getenv("LLM_TIEBREAKER_MIN", "0.30"))
-    LLM_TIEBREAKER_MAX: float = float(os.getenv("LLM_TIEBREAKER_MAX", "0.60"))
 
     # LLM 최대 출력 토큰 수. Ollama는 기본 무제한이므로 명시적으로 제한해야 빠름.
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "800"))

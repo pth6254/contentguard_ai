@@ -1,10 +1,6 @@
 """카테고리별 점수 산정 단위 테스트."""
 import pytest
-from services.category_scorer import (
-    compute_category_scores,
-    compute_calibrated_score,
-    CATEGORIES,
-)
+from services.category_scorer import compute_category_scores, CATEGORIES
 
 
 class TestComputeCategoryScores:
@@ -55,28 +51,3 @@ class TestComputeCategoryScores:
         # 욕설로 쓰인 "년"은 여전히 감지
         scores = compute_category_scores("이 년아 꺼져")
         assert scores["profanity"] > 17
-
-
-class TestComputeCalibratedScore:
-    def test_clean_text_score_equals_model_score(self):
-        cat_scores = {c: 0 for c in CATEGORIES}
-        calibrated = compute_calibrated_score(0.5, cat_scores)
-        # 카테고리 최고점 0 → 0.7 × 0.5 + 0.3 × 0.0 = 0.35
-        assert calibrated == pytest.approx(0.35, abs=0.01)
-
-    def test_high_category_score_raises_calibrated(self):
-        cat_scores = {c: 0 for c in CATEGORIES}
-        cat_scores["threat"] = 97
-        calibrated = compute_calibrated_score(0.3, cat_scores)
-        # 0.7 × 0.3 + 0.3 × 0.97 = 0.21 + 0.291 = 0.501
-        assert calibrated > 0.3
-
-    def test_calibrated_score_never_exceeds_1(self):
-        cat_scores = {c: 100 for c in CATEGORIES}
-        calibrated = compute_calibrated_score(1.0, cat_scores)
-        assert calibrated <= 1.0
-
-    def test_calibrated_score_never_below_0(self):
-        cat_scores = {c: 0 for c in CATEGORIES}
-        calibrated = compute_calibrated_score(0.0, cat_scores)
-        assert calibrated >= 0.0
