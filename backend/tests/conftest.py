@@ -151,22 +151,33 @@ MOCK_TRIGGERED_RULES: list = []
 MOCK_EVIDENCE_SPANS: list = []
 
 
+_MOCK_ESCALATION = (
+    MOCK_FINAL_RESULT["risk_score"],
+    MOCK_FINAL_RESULT["risk_level"],
+    MOCK_FINAL_RESULT["recommended_action"],
+)
+
+
 @pytest.fixture
 def mock_predict():
     with (
         patch.object(prediction_service, "predict_all", return_value=MOCK_PREDICTIONS),
         patch.object(prediction_service, "get_final_result", return_value=MOCK_FINAL_RESULT),
+        # analyze 라우터
         patch("routers.analyze.generate_explanation_json", return_value=MOCK_EXPLANATION_JSON),
         patch("routers.analyze.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
         patch("routers.analyze.detect_rules", return_value=[]),
         patch("routers.analyze.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
         patch("routers.analyze.compute_calibrated_score", return_value=MOCK_FINAL_RESULT["risk_score"]),
-        patch("routers.analyze.apply_forced_escalation", return_value=(
-            MOCK_FINAL_RESULT["risk_score"],
-            MOCK_FINAL_RESULT["risk_level"],
-            MOCK_FINAL_RESULT["recommended_action"],
-        )),
+        patch("routers.analyze.apply_forced_escalation", return_value=_MOCK_ESCALATION),
         patch("routers.analyze.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
+        # crawl 라우터
+        patch("routers.crawl.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
+        patch("routers.crawl.detect_rules", return_value=[]),
+        patch("routers.crawl.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
+        patch("routers.crawl.compute_calibrated_score", return_value=MOCK_FINAL_RESULT["risk_score"]),
+        patch("routers.crawl.apply_forced_escalation", return_value=_MOCK_ESCALATION),
+        patch("routers.crawl.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
         patch("routers.crawl.generate_explanation", return_value="테스트 설명입니다."),
     ):
         yield

@@ -100,6 +100,7 @@ class TestCrawlSuccess:
             assert "risk_level" in item
             assert "risk_score" in item
             assert "content_id" in item
+            assert "triggered_rules" in item
 
 
 class TestCrawlScrapingFailure:

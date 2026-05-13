@@ -14,7 +14,7 @@ from services.category_scorer import compute_category_scores, compute_calibrated
 from services.content_service import save_analysis
 from services.decision_policy_service import apply_forced_escalation
 from services.evidence_service import extract_evidence_spans
-from services.llm_service import generate_explanation, generate_explanation_json
+from services.llm_service import generate_explanation_json
 from services.prediction_service import prediction_service
 from services.rule_detector import mask_pii, detect_rules
 

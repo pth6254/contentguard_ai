@@ -14,9 +14,13 @@ from database import get_db, SessionLocal
 from limiter import limiter
 from models import Client, Content
 from schemas import CrawlRequest
+from services.category_scorer import compute_category_scores, compute_calibrated_score
 from services.content_service import save_analysis
+from services.decision_policy_service import apply_forced_escalation
+from services.evidence_service import extract_evidence_spans
 from services.llm_service import extract_texts, generate_explanation
 from services.prediction_service import prediction_service
+from services.rule_detector import mask_pii, detect_rules
 
 logger = logging.getLogger(__name__)
 
@@ -105,27 +109,58 @@ def _stream(
     for i, text in enumerate(texts, start=1):
         content_id = f"{prefix}_{i:03d}"
         try:
+            # ML 예측
             all_predictions = prediction_service.predict_all(text)
-            final = prediction_service.get_final_result(all_predictions)
+            ml_result = prediction_service.get_final_result(all_predictions)
+            raw_model_score = ml_result["risk_score"]
+
+            # PII 마스킹
+            masked_text, detected_pii = mask_pii(text)
+
+            # 카테고리별 점수 + 보정 점수
+            category_scores = compute_category_scores(text)
+            calibrated_score = compute_calibrated_score(raw_model_score, category_scores)
+
+            # 규칙 탐지 + 강제 승격
+            triggered_rules_obj = detect_rules(text, detected_pii)
+            triggered_rules = [r.to_dict() for r in triggered_rules_obj]
+            final_score, final_grade, final_action = apply_forced_escalation(
+                calibrated_score, triggered_rules_obj
+            )
+            final = {
+                "risk_score": final_score,
+                "risk_level": final_grade,
+                "recommended_action": final_action,
+            }
+
+            # Evidence spans
+            evidence_spans = extract_evidence_spans(masked_text, category_scores)
 
             # HIGH/CRITICAL: 즉시 LLM 설명 생성 (운영자 심사가 시급)
             explanation = None
-            if final["risk_level"] in _IMMEDIATE_LEVELS:
+            if final_grade in _IMMEDIATE_LEVELS:
                 explanation = generate_explanation(
                     text=text,
-                    risk_score=final["risk_score"],
-                    risk_level=final["risk_level"],
-                    recommended_action=final["recommended_action"],
+                    risk_score=final_score,
+                    risk_level=final_grade,
+                    recommended_action=final_action,
                 )
 
-            record = save_analysis(db, content_id, text, client_id, all_predictions, final, explanation)
+            record = save_analysis(
+                db, content_id, text, client_id, all_predictions, final, explanation,
+                category_scores=category_scores,
+                triggered_rules=triggered_rules,
+                evidence_spans=evidence_spans,
+                raw_model_score=raw_model_score,
+                calibrated_score=calibrated_score,
+            )
             saved += 1
 
             # MEDIUM/LOW: 스트림 완료 후 백그라운드에서 LLM 설명 생성
-            if final["risk_level"] not in _IMMEDIATE_LEVELS:
+            if final_grade not in _IMMEDIATE_LEVELS:
                 background_tasks.add_task(
                     _generate_and_save_explanation,
-                    content_id, text, final["risk_score"], final["risk_level"], final["recommended_action"],
+                    content_id, text, final_score, final_grade, final_action,
                 )
 
             yield _sse({
@@ -134,6 +169,7 @@ def _stream(
                 "text": text,
                 "risk_level": record.risk_level,
                 "risk_score": record.risk_score,
+                "triggered_rules": len(triggered_rules),
             })
         except Exception as e:
             errors += 1

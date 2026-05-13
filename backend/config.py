@@ -68,6 +68,7 @@ class Settings:
     # true로 설정하면 <think> 과정을 건너뛰어 응답 속도가 크게 향상됨.
     OLLAMA_NO_THINK_EXPLAIN: bool = os.getenv("OLLAMA_NO_THINK_EXPLAIN", "false").lower() == "true"
     OLLAMA_NO_THINK_REVIEW:  bool = os.getenv("OLLAMA_NO_THINK_REVIEW",  "false").lower() == "true"
+    OLLAMA_NO_THINK_EXTRACT: bool = os.getenv("OLLAMA_NO_THINK_EXTRACT", "false").lower() == "true"
     ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
 
     # JWT

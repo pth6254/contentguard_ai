@@ -389,7 +389,7 @@ def _extract_with_llm(markdown: str, max_items: int) -> list[str]:
 마크다운:
 {markdown[:6000]}"""
 
-    client = _get_client("extract")
+    client = _get_client("extract", no_think=settings.OLLAMA_NO_THINK_EXTRACT)
     logger.info(
         "텍스트 추출 (LLM) — provider=%s model=%s",
         settings.LLM_PROVIDER_EXTRACT, client.model or "(default)",
