@@ -36,7 +36,8 @@ _BENIGN = re.compile(
     r'(?:뉴스|보도|기사|연구|소설|영화|드라마|캠페인|피해자|지원|예방|교육|안내|'
     r'신고|상담|경고|조심|주의|분석|통계|학술|논문|'
     r'\bnews\b|\breport\b|\bstudy\b|\bnovel\b|\bmovie\b|\bcampaign\b|'
-    r'\bvictim\b|\bsupport\b|\bprevention\b|\beducation\b|\bwarning\b|\bresearch\b)',
+    r'\bvictim\b|\bsupport\b|\bprevention\b|\beducation\b|\bwarning\b|\bresearch\b|'
+    r'\d+\s*[-~]?\s*\d*\s*년|\d+\s*년)',   # 숫자+년 = 기간/연도 맥락 (2-3년, 10년 등)
     re.IGNORECASE,
 )
 

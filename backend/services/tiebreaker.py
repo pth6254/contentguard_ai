@@ -67,7 +67,7 @@ def tiebreak(
     )
 
     try:
-        client   = _get_client("explain", no_think=settings.OLLAMA_NO_THINK_REVIEW)
+        client   = _get_client("explain")
         raw      = client.chat(_SYSTEM, prompt)
         start    = raw.find("{")
         end      = raw.rfind("}") + 1

@@ -1,5 +1,5 @@
 from models import Content
-from tests.conftest import MOCK_FINAL_RESULT, MOCK_PREDICTIONS
+from tests.conftest import MOCK_FINAL_RESULT
 
 
 class TestAnalyzeAuth:
@@ -90,24 +90,6 @@ class TestAnalyzeEndpoint:
     def test_missing_content_id_returns_422(self, client, mock_predict):
         response = client.post("/api/analyze", json={"text": "텍스트"})
         assert response.status_code == 422
-
-    def test_stores_one_prediction_per_model(self, client, mock_predict):
-        client.post("/api/analyze", json={"content_id": "C001", "text": "테스트"})
-        preds = client.get("/api/contents/C001/predictions").json()
-        assert len(preds) == len(MOCK_PREDICTIONS)
-
-    def test_selected_model_is_logistic_regression(self, client, mock_predict):
-        client.post("/api/analyze", json={"content_id": "C001", "text": "테스트"})
-        preds = client.get("/api/contents/C001/predictions").json()
-        selected = [p for p in preds if p["is_selected"]]
-        assert len(selected) == 1
-        assert selected[0]["model_name"] == "logistic_regression"
-
-    def test_shadow_models_are_marked(self, client, mock_predict):
-        client.post("/api/analyze", json={"content_id": "C001", "text": "테스트"})
-        preds = client.get("/api/contents/C001/predictions").json()
-        shadow = [p for p in preds if p["is_shadow"]]
-        assert len(shadow) == 2
 
 
 class TestContentStatusEndpoint:

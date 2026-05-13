@@ -141,6 +141,16 @@ MOCK_EXPLANATION_JSON = {
     "confidence_note": "테스트 확신도",
 }
 
+MOCK_CLASSIFY_RESULT = {
+    "risk_level": "CRITICAL",
+    "risk_score": 0.88,
+    "category_scores": {
+        "profanity": 0, "threat": 0, "sexual": 0,
+        "privacy": 0, "spam": 0, "self_harm": 0, "policy_violation": 0,
+    },
+    **MOCK_EXPLANATION_JSON,
+}
+
 MOCK_CATEGORY_SCORES = {
     "profanity": 0, "threat": 0, "sexual": 0,
     "privacy": 0, "spam": 0, "self_harm": 0, "policy_violation": 0,
@@ -161,24 +171,20 @@ _MOCK_ESCALATION = (
 @pytest.fixture
 def mock_predict():
     with (
-        patch.object(prediction_service, "predict_all", return_value=MOCK_PREDICTIONS),
-        patch.object(prediction_service, "get_final_result", return_value=MOCK_FINAL_RESULT),
         # analyze 라우터
-        patch("routers.analyze.generate_explanation_json", return_value=MOCK_EXPLANATION_JSON),
+        patch("routers.analyze.classify_and_explain", return_value=MOCK_CLASSIFY_RESULT),
         patch("routers.analyze.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
         patch("routers.analyze.detect_rules", return_value=[]),
         patch("routers.analyze.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
-        patch("routers.analyze.compute_calibrated_score", return_value=MOCK_FINAL_RESULT["risk_score"]),
         patch("routers.analyze.apply_forced_escalation", return_value=_MOCK_ESCALATION),
         patch("routers.analyze.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
         # crawl 라우터
+        patch("routers.crawl.classify_and_explain", return_value=MOCK_CLASSIFY_RESULT),
         patch("routers.crawl.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
         patch("routers.crawl.detect_rules", return_value=[]),
         patch("routers.crawl.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
-        patch("routers.crawl.compute_calibrated_score", return_value=MOCK_FINAL_RESULT["risk_score"]),
         patch("routers.crawl.apply_forced_escalation", return_value=_MOCK_ESCALATION),
         patch("routers.crawl.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
-        patch("routers.crawl.generate_explanation", return_value="테스트 설명입니다."),
     ):
         yield
 

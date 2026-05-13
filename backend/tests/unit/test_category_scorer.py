@@ -46,6 +46,16 @@ class TestComputeCategoryScores:
         assert scores["profanity"] > 0
         assert scores["policy_violation"] > 0
 
+    def test_year_number_not_flagged_as_profanity(self):
+        # "2-3년" 의 "년"은 기간 맥락 — profanity 오탐 방지
+        scores = compute_category_scores("2-3년 정도 걸립니다")
+        assert scores["profanity"] <= 17  # 감쇄 적용 시 최대 0.50×0.35×100 = 17
+
+    def test_slur_neon_still_detected(self):
+        # 욕설로 쓰인 "년"은 여전히 감지
+        scores = compute_category_scores("이 년아 꺼져")
+        assert scores["profanity"] > 17
+
 
 class TestComputeCalibratedScore:
     def test_clean_text_score_equals_model_score(self):

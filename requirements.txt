@@ -11,7 +11,7 @@ joblib==1.4.2
 numpy==2.4.4
 pandas==2.2.3
 openpyxl==3.1.5
-ollama==0.4.4
+ollama>=0.6.0
 trafilatura>=1.12.0
 beautifulsoup4>=4.12.0
 openai>=1.54.0

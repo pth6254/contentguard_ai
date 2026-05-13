@@ -62,13 +62,8 @@ class Settings:
     LLM_TIEBREAKER_MAX: float = float(os.getenv("LLM_TIEBREAKER_MAX", "0.60"))
 
     # LLM 최대 출력 토큰 수. Ollama는 기본 무제한이므로 명시적으로 제한해야 빠름.
-    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "500"))
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "800"))
 
-    # qwen3 계열 모델의 thinking(reasoning) 모드 비활성화 — 태스크별 독립 설정.
-    # true로 설정하면 <think> 과정을 건너뛰어 응답 속도가 크게 향상됨.
-    OLLAMA_NO_THINK_EXPLAIN: bool = os.getenv("OLLAMA_NO_THINK_EXPLAIN", "false").lower() == "true"
-    OLLAMA_NO_THINK_REVIEW:  bool = os.getenv("OLLAMA_NO_THINK_REVIEW",  "false").lower() == "true"
-    OLLAMA_NO_THINK_EXTRACT: bool = os.getenv("OLLAMA_NO_THINK_EXTRACT", "false").lower() == "true"
     ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "")
 
     # JWT

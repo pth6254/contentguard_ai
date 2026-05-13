@@ -4,30 +4,26 @@ import time
 from typing import Generator, Optional
 
 import requests as http
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_client_or_operator
 from config import settings
-from database import get_db, SessionLocal
+from database import get_db
 from limiter import limiter
-from models import Client, Content
+from models import Client
 from schemas import CrawlRequest
-from services.category_scorer import compute_category_scores, compute_calibrated_score
+from services.category_scorer import compute_category_scores
 from services.content_service import save_analysis
 from services.decision_policy_service import apply_forced_escalation
 from services.evidence_service import extract_evidence_spans
-from services.llm_service import extract_texts, generate_explanation
-from services.prediction_service import prediction_service
+from services.llm_service import extract_texts, classify_and_explain
 from services.rule_detector import mask_pii, detect_rules
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["crawl"])
-
-# HIGH/CRITICAL은 스트리밍 중 즉시 생성, MEDIUM/LOW는 스트림 완료 후 백그라운드 처리
-_IMMEDIATE_LEVELS = {"HIGH", "CRITICAL"}
 
 
 def _sse(data: dict) -> str:
@@ -49,32 +45,11 @@ def _scrape(url: str) -> tuple[str, str]:
     return data["data"]["markdown"], data["data"].get("html", "")
 
 
-def _generate_and_save_explanation(
-    content_id: str, text: str, risk_score: float, risk_level: str, recommended_action: str
-) -> None:
-    """MEDIUM/LOW 항목의 LLM 설명을 백그라운드에서 생성하고 저장한다."""
-    db = SessionLocal()
-    try:
-        explanation = generate_explanation(
-            text=text, risk_score=risk_score, risk_level=risk_level, recommended_action=recommended_action,
-        )
-        record = db.query(Content).filter(Content.content_id == content_id).first()
-        if record and record.explanation is None:
-            record.explanation = explanation
-            db.commit()
-            logger.info("백그라운드 설명 저장 완료: content_id=%s", content_id)
-    except Exception as e:
-        logger.error("백그라운드 설명 생성 실패: content_id=%s error=%s", content_id, e)
-    finally:
-        db.close()
-
-
 def _stream(
     url: str,
     max_items: int,
     db: Session,
     client_id: Optional[int],
-    background_tasks: BackgroundTasks,
 ) -> Generator[str, None, None]:
     if not settings.FIRECRAWL_API_KEY:
         yield _sse({"type": "error", "message": "FIRECRAWL_API_KEY가 설정되지 않았습니다."})
@@ -102,30 +77,24 @@ def _stream(
         yield _sse({"type": "done", "saved": 0, "skipped": 0, "errors": 0})
         return
 
-    # 3단계: 항목별 분석 및 저장
+    # 3단계: 항목별 LLM 분류 및 저장
     saved = skipped = errors = 0
     prefix = f"CRAWL_{int(time.time())}"
 
     for i, text in enumerate(texts, start=1):
         content_id = f"{prefix}_{i:03d}"
         try:
-            # ML 예측
-            all_predictions = prediction_service.predict_all(text)
-            ml_result = prediction_service.get_final_result(all_predictions)
-            raw_model_score = ml_result["risk_score"]
-
-            # PII 마스킹
             masked_text, detected_pii = mask_pii(text)
-
-            # 카테고리별 점수 + 보정 점수
-            category_scores = compute_category_scores(text)
-            calibrated_score = compute_calibrated_score(raw_model_score, category_scores)
-
-            # 규칙 탐지 + 강제 승격
+            category_hints = compute_category_scores(text)
             triggered_rules_obj = detect_rules(text, detected_pii)
             triggered_rules = [r.to_dict() for r in triggered_rules_obj]
+
+            # LLM 분류 + 설명 (1회 호출, NO_THINK 상시 활성)
+            llm_result = classify_and_explain(masked_text, category_hints, triggered_rules)
+            category_scores = llm_result["category_scores"]
+
             final_score, final_grade, final_action = apply_forced_escalation(
-                calibrated_score, triggered_rules_obj
+                llm_result["risk_score"], triggered_rules_obj
             )
             final = {
                 "risk_score": final_score,
@@ -133,35 +102,27 @@ def _stream(
                 "recommended_action": final_action,
             }
 
-            # Evidence spans
             evidence_spans = extract_evidence_spans(masked_text, category_scores)
 
-            # HIGH/CRITICAL: 즉시 LLM 설명 생성 (운영자 심사가 시급)
-            explanation = None
-            if final_grade in _IMMEDIATE_LEVELS:
-                explanation = generate_explanation(
-                    text=text,
-                    risk_score=final_score,
-                    risk_level=final_grade,
-                    recommended_action=final_action,
-                )
+            explanation_json = {
+                "summary":                    llm_result.get("summary", ""),
+                "score_explanation":          llm_result.get("score_explanation", ""),
+                "main_reasons":               llm_result.get("main_reasons", []),
+                "evidence":                   llm_result.get("evidence", []),
+                "recommended_operator_check": llm_result.get("recommended_operator_check", ""),
+                "confidence_note":            llm_result.get("confidence_note", ""),
+            }
 
             record = save_analysis(
-                db, content_id, text, client_id, all_predictions, final, explanation,
+                db, content_id, text, client_id, [], final,
+                explanation=explanation_json.get("summary", ""),
                 category_scores=category_scores,
                 triggered_rules=triggered_rules,
                 evidence_spans=evidence_spans,
-                raw_model_score=raw_model_score,
-                calibrated_score=calibrated_score,
+                explanation_json=explanation_json,
+                calibrated_score=llm_result["risk_score"],
             )
             saved += 1
-
-            # MEDIUM/LOW: 스트림 완료 후 백그라운드에서 LLM 설명 생성
-            if final_grade not in _IMMEDIATE_LEVELS:
-                background_tasks.add_task(
-                    _generate_and_save_explanation,
-                    content_id, text, final_score, final_grade, final_action,
-                )
 
             yield _sse({
                 "type": "item",
@@ -185,12 +146,11 @@ def _stream(
 def crawl(
     request: Request,
     body: CrawlRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     client: Optional[Client] = Depends(get_client_or_operator),
 ):
     return StreamingResponse(
-        _stream(body.url, body.max_items, db, client.id if client else None, background_tasks),
+        _stream(body.url, body.max_items, db, client.id if client else None),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

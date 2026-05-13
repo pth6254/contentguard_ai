@@ -10,12 +10,11 @@ from database import get_db
 from limiter import limiter
 from models import Client, Content
 from schemas import AnalyzeRequest, ContentResponse, ContentStatusResponse
-from services.category_scorer import compute_category_scores, compute_calibrated_score
+from services.category_scorer import compute_category_scores
 from services.content_service import save_analysis
 from services.decision_policy_service import apply_forced_escalation
 from services.evidence_service import extract_evidence_spans
-from services.llm_service import generate_explanation_json
-from services.prediction_service import prediction_service
+from services.llm_service import classify_and_explain
 from services.rule_detector import mask_pii, detect_rules
 
 logger = logging.getLogger(__name__)
@@ -40,70 +39,32 @@ def analyze(
     # ── 1. PII 마스킹 ────────────────────────────────────────────────────────
     masked_text, detected_pii = mask_pii(body.text)
 
-    # ── 2. ML 모델 예측 ──────────────────────────────────────────────────────
-    all_predictions = prediction_service.predict_all(body.text)
-    ml_result = prediction_service.get_final_result(all_predictions)
-    raw_model_score = ml_result["risk_score"]
+    # ── 2. 카테고리 키워드 점수 (SAFE 게이트 + LLM 힌트용) ──────────────────
+    category_hints = compute_category_scores(body.text)
 
-    # ── 3. 카테고리별 점수 산정 (부정어·무해 맥락 감쇄 포함) ─────────────────
-    category_scores = compute_category_scores(body.text)
-
-    # ── 4. 보정 점수 (ML × w + 카테고리 max × w) ─────────────────────────────
-    calibrated_score = compute_calibrated_score(raw_model_score, category_scores)
-
-    # ── 5. 규칙 탐지 ─────────────────────────────────────────────────────────
+    # ── 3. 규칙 탐지 ─────────────────────────────────────────────────────────
     triggered_rules_obj = detect_rules(body.text, detected_pii)
     triggered_rules = [r.to_dict() for r in triggered_rules_obj]
 
-    # ── 6. LLM 맥락 검토 (LLM_CONTEXT_REVIEW=true 시 활성) ───────────────────
-    context_note = ""
-    if settings.LLM_CONTEXT_REVIEW:
-        from services.context_review import review_context
-        context_modifier, context_note = review_context(
-            body.text, category_scores, triggered_rules
-        )
-        if context_modifier < 0:
-            calibrated_score = round(
-                max(0.0, min(1.0, calibrated_score + context_modifier)), 3
-            )
-            logger.info(
-                "Context review 적용 — modifier=%.3f → calibrated_score=%.3f",
-                context_modifier, calibrated_score,
-            )
+    # ── 4. LLM 1차 분류 + 설명 (NO_THINK 항상 활성) ─────────────────────────
+    # 키워드 전부 0점 + 규칙 없으면 LLM 호출 생략 → SAFE 즉시 반환
+    llm_result = classify_and_explain(masked_text, category_hints, triggered_rules)
+    category_scores = llm_result["category_scores"]
 
-    # ── 6.5. MEDIUM 구간 LLM tiebreaker (LLM_TIEBREAKER=true 시 활성) ────────
-    # 명확한 LOW·HIGH는 건너뛰고 애매한 MEDIUM에서만 LLM 재분류
-    if (settings.LLM_TIEBREAKER
-            and settings.LLM_TIEBREAKER_MIN <= calibrated_score <= settings.LLM_TIEBREAKER_MAX):
-        from services.tiebreaker import tiebreak
-        tb_modifier, tb_reasoning = tiebreak(
-            body.text, calibrated_score, category_scores, triggered_rules
-        )
-        if tb_modifier != 0.0:
-            calibrated_score = round(
-                max(0.0, min(1.0, calibrated_score + tb_modifier)), 3
-            )
-            logger.info(
-                "Tiebreaker 적용 — modifier=%.3f → calibrated_score=%.3f",
-                tb_modifier, calibrated_score,
-            )
-        context_note = " | ".join(filter(None, [context_note, tb_reasoning]))
-
-    # ── 7. 강제 승격 규칙 적용 ───────────────────────────────────────────────
+    # ── 5. 강제 승격 규칙 적용 ───────────────────────────────────────────────
     final_score, final_grade, final_action = apply_forced_escalation(
-        calibrated_score, triggered_rules_obj
+        llm_result["risk_score"], triggered_rules_obj
     )
-
     final = {
         "risk_score": final_score,
         "risk_level": final_grade,
         "recommended_action": final_action,
     }
 
-    # ── 8. Evidence span 추출 ─────────────────────────────────────────────────
+    # ── 6. Evidence span 추출 ─────────────────────────────────────────────────
     evidence_spans = extract_evidence_spans(masked_text, category_scores)
 
-    # ── 8.5. HIGH/CRITICAL 심층 분석 (LLM_DEEP_ANALYSIS=true 시 활성) ────────
+    # ── 7. HIGH/CRITICAL 심층 분석 (LLM_DEEP_ANALYSIS=true 시 활성) ──────────
     deep_analysis = None
     if settings.LLM_DEEP_ANALYSIS and final_grade in ("HIGH", "CRITICAL"):
         from services.deep_analysis import analyze_deeply
@@ -111,35 +72,33 @@ def analyze(
             body.text, final_grade, category_scores, triggered_rules, evidence_spans
         )
 
-    # ── 9. LLM 구조화 설명 생성 ──────────────────────────────────────────────
-    explanation_json = generate_explanation_json(
-        masked_text=masked_text,
-        final_score=final_score,
-        final_grade=final_grade,
-        recommended_action=final_action,
-        category_scores=category_scores,
-        triggered_rules=triggered_rules,
-        evidence_spans=evidence_spans,
-        context_note=context_note,
-        deep_analysis=deep_analysis,
-    )
-    explanation = explanation_json.get("summary", "")
+    # ── 8. 설명 JSON 조립 ────────────────────────────────────────────────────
+    explanation_json = {
+        "summary":                    llm_result.get("summary", ""),
+        "score_explanation":          llm_result.get("score_explanation", ""),
+        "main_reasons":               llm_result.get("main_reasons", []),
+        "evidence":                   llm_result.get("evidence", []),
+        "recommended_operator_check": llm_result.get("recommended_operator_check", ""),
+        "confidence_note":            llm_result.get("confidence_note", ""),
+    }
+    if deep_analysis:
+        explanation_json["deep_analysis"] = deep_analysis
 
-    # ── 10. DB 저장 ───────────────────────────────────────────────────────────
+    # ── 9. DB 저장 ───────────────────────────────────────────────────────────
     return save_analysis(
         db=db,
         content_id=body.content_id,
         text=body.text,
         client_id=client.id if client else None,
-        all_predictions=all_predictions,
+        all_predictions=[],
         final=final,
-        explanation=explanation,
+        explanation=explanation_json.get("summary", ""),
         category_scores=category_scores,
         triggered_rules=triggered_rules,
         evidence_spans=evidence_spans,
         explanation_json=explanation_json,
-        raw_model_score=raw_model_score,
-        calibrated_score=calibrated_score,
+        raw_model_score=None,
+        calibrated_score=llm_result["risk_score"],
     )
 
 

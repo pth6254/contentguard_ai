@@ -135,10 +135,26 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
           {item.explanation_json ? (
             <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400 space-y-2">
               <p className="text-slate-400 font-medium">{item.explanation_json.summary}</p>
+              {item.explanation_json.score_explanation && (
+                <p className="text-slate-500 leading-relaxed">{item.explanation_json.score_explanation}</p>
+              )}
               {item.explanation_json.main_reasons.length > 0 && (
                 <ul className="list-disc list-inside space-y-0.5 text-slate-500">
                   {item.explanation_json.main_reasons.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
+              )}
+              {item.explanation_json.evidence.length > 0 && (
+                <div className="space-y-1 border-t border-slate-800 pt-2">
+                  {item.explanation_json.evidence.map((ev, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-slate-600 shrink-0">•</span>
+                      <span>
+                        <span className="font-mono text-slate-300">"{ev.quote}"</span>
+                        <span className="text-slate-500"> — {ev.why_it_matters}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
               <p className="text-slate-600 border-t border-slate-800 pt-2">
                 {item.explanation_json.recommended_operator_check}
