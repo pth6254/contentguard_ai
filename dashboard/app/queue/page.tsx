@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { ChevronDown, ChevronUp, RefreshCw, Search, X } from "lucide-react"
+import { ChevronDown, ChevronUp, RefreshCw, Search, Trash2, X } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -274,6 +274,17 @@ export default function QueuePage() {
                         }}
                       />
                     </Dialog>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`'${item.content_id}' 를 삭제하시겠습니까?`)) return
+                        await api.deleteContent(item.content_id)
+                        if (items.length <= 1 && page > 0) setPage(p => p - 1)
+                        else load()
+                      }}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               </CardContent>
