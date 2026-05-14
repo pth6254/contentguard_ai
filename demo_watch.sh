@@ -60,11 +60,13 @@ TICK=0
 while true; do
   REVIEWS=$(curl -s "$RECEIVER_URL/reviews" 2>/dev/null)
 
-  # 각 리뷰 상태별 처리
+  # 각 리뷰 상태별 처리 (created_at 오름차순 — 최신이 맨 아래)
   echo "$REVIEWS" | python3 -c "
 import sys, json
 try:
-    for r in json.load(sys.stdin):
+    reviews = json.load(sys.stdin)
+    reviews.sort(key=lambda r: r.get('created_at', ''))
+    for r in reviews:
         print(r['content_id'], r.get('status', ''))
 except:
     pass
