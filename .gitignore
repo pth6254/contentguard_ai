@@ -223,6 +223,7 @@ __marimo__/
 venv-wsl/
 models/*.pkl
 *.db
+.demo_last_id
 
 # Next.js / Node
 node_modules/
