@@ -23,10 +23,9 @@ class TestAnalyzeRequest:
         with pytest.raises(ValidationError):
             AnalyzeRequest(content_id="C001")
 
-    def test_whitespace_only_text_accepted(self):
-        # min_length=1 이므로 공백 1자는 통과
-        req = AnalyzeRequest(content_id="C001", text=" ")
-        assert req.text == " "
+    def test_whitespace_only_text_rejected(self):
+        with pytest.raises(ValidationError):
+            AnalyzeRequest(content_id="C001", text=" ")
 
 
 class TestReviewRequest:

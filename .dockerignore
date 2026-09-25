@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/__pycache__
+**/*.db*
+**/*.tsbuildinfo
+venv-wsl
+.pytest_cache
+.deployment
+backups

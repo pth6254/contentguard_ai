@@ -1,19 +1,27 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AnalyzeRequest(BaseModel):
-    content_id: str = Field(..., example="C001")
-    text: str = Field(..., min_length=1, example="이 제품 완전 사기네요")
+    content_id: str = Field(..., min_length=1, max_length=200, pattern=r"^[^/\s?#]+$", example="C001")
+    text: str = Field(..., min_length=1, max_length=8000, example="이 제품 완전 사기네요")
+
+    @field_validator("text")
+    @classmethod
+    def nonblank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("텍스트를 입력하세요.")
+        return value
 
 
 class ReviewRequest(BaseModel):
+    expected_version: Optional[int] = Field(None, ge=0)
     action: Literal["approve", "remove", "hold", "monitor"] = Field(
         ..., example="approve"
     )
-    comment: Optional[str] = Field(None, example="검토 후 문제없음")
+    comment: Optional[str] = Field(None, max_length=2000, example="검토 후 문제없음")
 
 
 class EvidenceSpan(BaseModel):
@@ -25,6 +33,9 @@ class EvidenceSpan(BaseModel):
 
 
 class ContentResponse(BaseModel):
+    id: Optional[int] = None
+    client_id: Optional[int] = None
+    review_version: int = 0
     content_id: str
     text: str
     risk_score: float
@@ -62,6 +73,17 @@ class ClientResponse(BaseModel):
 
 class WebhookUrlUpdate(BaseModel):
     webhook_url: Optional[str] = Field(None, example="https://your-service.com/webhook")
+
+    @field_validator("webhook_url")
+    @classmethod
+    def valid_url(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        from urllib.parse import urlsplit
+        url = urlsplit(value)
+        if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.fragment:
+            raise ValueError("인증정보와 fragment가 없는 HTTP(S) URL을 입력하세요.")
+        return value
 
 
 class ClientUpdate(BaseModel):

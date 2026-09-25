@@ -41,6 +41,8 @@ def apply_forced_escalation(
     final_grade = base_grade
 
     for rule in triggered_rules:
+        if rule.review_only:
+            continue
         min_idx = _GRADE_ORDER.index(rule.min_grade)
         cur_idx = _GRADE_ORDER.index(final_grade)
         if min_idx > cur_idx:
@@ -55,4 +57,4 @@ def apply_forced_escalation(
     if final_score < grade_floor:
         final_score = grade_floor
 
-    return round(final_score, 3), final_grade, get_recommended_action(final_grade)
+    return final_score, final_grade, get_recommended_action(final_grade)

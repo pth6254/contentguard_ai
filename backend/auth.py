@@ -33,8 +33,12 @@ def create_access_token(sub: str, role: str, name: str = "") -> str:
 
 def _decode_jwt(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM],
+                             options={"require_exp": True, "require_sub": True})
+        if payload.get("role") not in ("operator", "client") or int(payload["sub"]) <= 0:
+            raise ValueError("Invalid subject or role")
+        return payload
+    except (JWTError, ValueError, TypeError, KeyError):
         raise HTTPException(status_code=401, detail="유효하지 않거나 만료된 토큰입니다.")
 
 
@@ -121,7 +125,7 @@ def require_operator(
     authorization: str | None = Header(None),
     x_admin_secret: str | None = Header(None),
     db: Session = Depends(get_db),
-) -> None:
+) -> Operator | None:
     """운영자 전용 엔드포인트 보호. JWT 또는 X-Admin-Secret 중 하나를 허용."""
     if authorization and authorization.startswith("Bearer "):
         try:
@@ -132,7 +136,7 @@ def require_operator(
                     Operator.is_active == True,
                 ).first()
                 if op:
-                    return
+                    return op
         except HTTPException:
             pass
 

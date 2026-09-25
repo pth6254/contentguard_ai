@@ -30,7 +30,7 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
     if (!confirm(`'${item.content_id}' 를 삭제하시겠습니까?`)) return
     setDeleting(true)
     try {
-      await api.deleteContent(item.content_id)
+      await api.deleteContent(item)
       onReload()
     } catch {
       setDeleting(false)
@@ -70,7 +70,7 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
         <div className="px-4 pb-4 space-y-3">
           {/* 전문 + evidence 하이라이트 */}
           <div className="rounded-md bg-slate-900 p-3">
-            <p className="text-slate-500 text-xs font-medium mb-1.5">원문</p>
+            <p className="text-slate-500 text-xs font-medium mb-1.5">분석 텍스트</p>
             {item.evidence_spans && item.evidence_spans.length > 0 ? (
               <HighlightedText text={item.text} spans={item.evidence_spans} />
             ) : (
@@ -89,13 +89,13 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
           {/* 강제 승격 규칙 */}
           {item.triggered_rules && item.triggered_rules.length > 0 && (
             <div className="rounded-md bg-amber-950/40 border border-amber-800/40 p-3">
-              <p className="text-amber-400 text-xs font-medium mb-1.5">강제 승격 규칙 적용됨</p>
+              <p className="text-amber-400 text-xs font-medium mb-1.5">감지된 규칙과 검토 신호</p>
               <div className="space-y-1">
                 {item.triggered_rules.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs text-amber-300/80">
                     <span className="font-mono bg-amber-900/40 px-1 rounded">{r.rule_id}</span>
                     <span>{r.description}</span>
-                    <span className="ml-auto text-amber-500">최소 {r.min_grade}</span>
+                    <span className="ml-auto text-amber-500">{r.review_only ? "직접 검토" : `최소 ${r.min_grade}`}</span>
                   </div>
                 ))}
               </div>
@@ -285,7 +285,7 @@ export default function HistoryPage() {
             {debouncedSearch ? `"${debouncedSearch}" 검색 결과가 없습니다.` : "데이터가 없습니다."}
           </p>
         ) : (
-          items.map(item => <ExpandRow key={item.content_id} item={item} onReload={load} />)
+          items.map(item => <ExpandRow key={item.id} item={item} onReload={load} />)
         )}
       </div>
 

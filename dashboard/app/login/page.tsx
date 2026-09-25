@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError]       = useState<string | null>(null)
   const [loading, setLoading]   = useState(false)
+  const [role, setRole] = useState<"operator" | "client">("operator")
 
   useEffect(() => {
     if (isLoggedIn()) {
@@ -27,7 +28,7 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     try {
-      await api.login(email, password)
+      await api.login(email, password, role)
       router.replace(getRole() === "client" ? "/my-keys" : "/")
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다.")
@@ -45,11 +46,15 @@ export default function LoginPage() {
             <Shield className="h-7 w-7 text-indigo-400" />
             <span className="text-xl font-semibold text-slate-100">ContentGuard AI</span>
           </div>
-          <p className="text-sm text-slate-400">운영자 로그인</p>
+          <p className="text-sm text-slate-400">{role === "operator" ? "운영자" : "클라이언트"} 로그인</p>
         </div>
 
         {/* 폼 */}
         <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-700 rounded-xl p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-2" aria-label="계정 유형">
+            <Button type="button" variant={role === "operator" ? "default" : "ghost"} onClick={() => { setRole("operator"); setError(null) }}>운영자</Button>
+            <Button type="button" variant={role === "client" ? "default" : "ghost"} onClick={() => { setRole("client"); setError(null) }}>클라이언트</Button>
+          </div>
           {error && (
             <div className="flex items-center gap-2 text-sm text-red-400 bg-red-950/30 px-3 py-2.5 rounded-md">
               <AlertCircle className="h-4 w-4 shrink-0" />

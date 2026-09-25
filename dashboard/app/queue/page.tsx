@@ -18,13 +18,13 @@ const LEVEL_COUNT_COLOR: Record<RiskLevel, string> = {
 }
 
 
-function PredictionsRow({ contentId }: { contentId: string }) {
+function PredictionsRow({ contentId, recordId }: { contentId: string; recordId: number }) {
   const [preds, setPreds] = useState<ModelPrediction[] | null>(null)
   const [open, setOpen] = useState(false)
 
   const load = () => {
     if (preds) { setOpen(o => !o); return }
-    api.getPredictions(contentId).then(p => { setPreds(p); setOpen(true) })
+    api.getPredictions(contentId, recordId).then(p => { setPreds(p); setOpen(true) })
   }
 
   return (
@@ -72,11 +72,11 @@ export default function QueuePage() {
   const [pageSize, setPageSize] = useState(30)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshTick, setRefreshTick] = useState(0)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const allSelected = items.length > 0 && items.every(i => selected.has(i.content_id))
+  const allSelected = items.length > 0 && items.every(i => selected.has(i.id))
   const someSelected = selected.size > 0
 
   useEffect(() => {
@@ -115,7 +115,7 @@ export default function QueuePage() {
     return () => clearInterval(id)
   }, [autoRefresh])
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: number) => {
     setSelected(prev => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -124,14 +124,14 @@ export default function QueuePage() {
   }
 
   const toggleSelectAll = () => {
-    setSelected(allSelected ? new Set() : new Set(items.map(i => i.content_id)))
+    setSelected(allSelected ? new Set() : new Set(items.map(i => i.id)))
   }
 
   const bulkReview = async (action: ReviewAction) => {
     if (!confirm(`선택한 ${selected.size}건을 일괄 처리하시겠습니까?`)) return
     setBulkLoading(true)
     try {
-      await Promise.all([...selected].map(id => api.review(id, action)))
+      await Promise.all(items.filter(item => selected.has(item.id)).map(item => api.review(item, action)))
       setSelected(new Set())
       if (items.length <= selected.size && page > 0) setPage(p => p - 1)
       else load()
@@ -252,16 +252,16 @@ export default function QueuePage() {
       ) : (
         <div className="space-y-3">
           {items.map(item => {
-            const isSelected = selected.has(item.content_id)
+            const isSelected = selected.has(item.id)
             return (
-              <Card key={item.content_id} className={isSelected ? "ring-1 ring-indigo-500" : ""}>
+              <Card key={item.id} className={isSelected ? "ring-1 ring-indigo-500" : ""}>
                 <CardContent className="p-5">
                   <div className="flex items-start gap-3">
                     {/* 체크박스 */}
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => toggleSelect(item.content_id)}
+                      onChange={() => toggleSelect(item.id)}
                       className="mt-1 w-4 h-4 rounded accent-indigo-500 cursor-pointer shrink-0"
                     />
 
@@ -340,7 +340,7 @@ export default function QueuePage() {
                         ) : item.explanation ? (
                           <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{item.explanation}</p>
                         ) : null}
-                        <PredictionsRow contentId={item.content_id} />
+                        <PredictionsRow contentId={item.content_id} recordId={item.id} />
                       </div>
 
                       <div className="flex flex-col items-end gap-3 shrink-0">
@@ -360,7 +360,7 @@ export default function QueuePage() {
                         <button
                           onClick={async () => {
                             if (!confirm(`'${item.content_id}' 를 삭제하시겠습니까?`)) return
-                            await api.deleteContent(item.content_id)
+                            await api.deleteContent(item)
                             if (items.length <= 1 && page > 0) setPage(p => p - 1)
                             else load()
                           }}

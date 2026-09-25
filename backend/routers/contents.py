@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from auth import require_operator
 from database import get_db
 from models import Content, ModelPrediction
+from services.content_lookup import find_content
 from schemas import ContentResponse, ModelPredictionResponse, StatsResponse
 
 logger = logging.getLogger(__name__)
@@ -57,40 +58,21 @@ def get_contents(
 
 
 @router.get("/contents/{content_id}/predictions", response_model=List[ModelPredictionResponse])
-def get_predictions(content_id: str, db: Session = Depends(get_db)):
-    if not db.query(Content).filter(Content.content_id == content_id).first():
-        raise HTTPException(
-            status_code=404,
-            detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
-        )
-    return (
-        db.query(ModelPrediction)
-        .filter(ModelPrediction.content_id == content_id)
-        .order_by(ModelPrediction.is_selected.desc(), ModelPrediction.created_at)
-        .all()
-    )
+def get_predictions(content_id: str, record_id: Optional[int] = None, db: Session = Depends(get_db)):
+    record = find_content(db, content_id, record_id)
+    return (db.query(ModelPrediction).filter(ModelPrediction.content_record_id == record.id)
+            .order_by(ModelPrediction.is_selected.desc(), ModelPrediction.created_at).all())
 
 
 @router.get("/contents/{content_id}", response_model=ContentResponse)
-def get_content(content_id: str, db: Session = Depends(get_db)):
-    record = db.query(Content).filter(Content.content_id == content_id).first()
-    if not record:
-        raise HTTPException(
-            status_code=404,
-            detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
-        )
-    return record
+def get_content(content_id: str, record_id: Optional[int] = None, db: Session = Depends(get_db)):
+    return find_content(db, content_id, record_id)
 
 
 @router.delete("/contents/{content_id}", status_code=204)
-def delete_content(content_id: str, db: Session = Depends(get_db)):
-    record = db.query(Content).filter(Content.content_id == content_id).first()
-    if not record:
-        raise HTTPException(
-            status_code=404,
-            detail=f"content_id '{content_id}' 를 찾을 수 없습니다.",
-        )
-    db.query(ModelPrediction).filter(ModelPrediction.content_id == content_id).delete()
+def delete_content(content_id: str, record_id: Optional[int] = None, db: Session = Depends(get_db)):
+    record = find_content(db, content_id, record_id)
+    db.query(ModelPrediction).filter(ModelPrediction.content_record_id == record.id).delete()
     db.delete(record)
     db.commit()
-    logger.info("콘텐츠 삭제: content_id=%s", content_id)
+    logger.info("Content deleted: record_id=%s", record.id)

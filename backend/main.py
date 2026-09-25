@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -30,7 +30,7 @@ from config import settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Admin-Secret"],
     expose_headers=["X-Total-Count"],
 )
@@ -64,7 +64,7 @@ def seed_initial_operator() -> None:
             db.add(op)
             db.commit()
             logging.getLogger(__name__).info(
-                "초기 운영자 생성: email=%s", settings.OPERATOR_EMAIL
+                "초기 운영자 생성: id=%s", op.id
             )
     finally:
         db.close()
@@ -84,14 +84,26 @@ def health_check():
             conn.execute(text("SELECT 1"))
         checks["db"] = "ok"
     except Exception as e:
-        checks["db"] = f"error: {e}"
+        checks["db"] = "error"
 
     try:
-        client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL)
+        client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL, timeout=3.0)
         client.list()
         checks["ollama"] = "ok"
     except Exception as e:
-        checks["ollama"] = f"error: {e}"
+        checks["ollama"] = "error"
 
     overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
     return {"status": overall, **checks}
+
+
+@app.get("/ready")
+def readiness():
+    from sqlalchemy import text
+    from database import engine
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "ok"}

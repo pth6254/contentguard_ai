@@ -27,7 +27,7 @@ export default function AnalyzePage() {
     try {
       const res = await api.analyze(contentId, text)
       setResult(res)
-      const predictions = await api.getPredictions(contentId)
+      const predictions = await api.getPredictions(res.content_id, res.id)
       setPreds(predictions)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -63,6 +63,7 @@ export default function AnalyzePage() {
             <div className="space-y-1.5">
               <label className="text-sm text-slate-400">분석할 텍스트</label>
               <Textarea
+                maxLength={8000}
                 placeholder="분석할 내용을 입력하세요..."
                 value={text}
                 onChange={e => setText(e.target.value)}
@@ -119,7 +120,7 @@ export default function AnalyzePage() {
 
               {/* 원문 + evidence 하이라이트 */}
               <div className="rounded-md bg-slate-900 p-3">
-                <p className="text-slate-500 text-xs font-medium mb-1.5">원문</p>
+                <p className="text-slate-500 text-xs font-medium mb-1.5">분석 텍스트</p>
                 {result.evidence_spans && result.evidence_spans.length > 0 ? (
                   <HighlightedText text={result.text} spans={result.evidence_spans} />
                 ) : (
@@ -140,13 +141,13 @@ export default function AnalyzePage() {
           {/* 강제 승격 규칙 */}
           {result.triggered_rules && result.triggered_rules.length > 0 && (
             <div className="rounded-md bg-amber-950/40 border border-amber-800/40 p-3">
-              <p className="text-amber-400 text-xs font-medium mb-1.5">강제 승격 규칙 적용됨</p>
+              <p className="text-amber-400 text-xs font-medium mb-1.5">감지된 규칙과 검토 신호</p>
               <div className="space-y-1">
                 {result.triggered_rules.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs text-amber-300/80">
                     <span className="font-mono bg-amber-900/40 px-1 rounded">{r.rule_id}</span>
                     <span>{r.description}</span>
-                    <span className="ml-auto text-amber-500">최소 {r.min_grade}</span>
+                    <span className="ml-auto text-amber-500">{r.review_only ? "직접 검토" : `최소 ${r.min_grade}`}</span>
                   </div>
                 ))}
               </div>

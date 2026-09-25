@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -230,3 +230,6 @@ node_modules/
 .next/
 .env.local
 dashboard/.env.local
+*.tsbuildinfo
+/.deployment/
+/backups/

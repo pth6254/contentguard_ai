@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getToken } from "@/lib/auth"
+import { getToken, authenticatedFetch } from "@/lib/auth"
 import { toKSTDate } from "@/lib/utils"
 
 interface Client  { id: number; name: string; webhook_url: string | null; created_at: string }
@@ -14,7 +14,7 @@ interface NewKey  extends ApiKey { key: string }
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken()
-  const res = await fetch(path, {
+  const res = await authenticatedFetch(path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -46,6 +46,7 @@ function WebhookSection({ client, onUpdate }: { client: Client; onUpdate: () => 
   const [saving, setSaving]   = useState(false)
   const [saved, setSaved]     = useState(false)
   const [error, setError]     = useState<string | null>(null)
+  const [secretCopied, setSecretCopied] = useState(false)
 
   const save = async () => {
     setSaving(true); setError(null)
@@ -69,7 +70,15 @@ function WebhookSection({ client, onUpdate }: { client: Client; onUpdate: () => 
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
         )}
       </div>
-
+      {client.webhook_url && <button className="text-xs text-indigo-400" onClick={async () => {
+        try {
+          const data = await adminFetch<{ secret: string }>(`/admin/clients/${client.id}/webhook-secret`)
+          await navigator.clipboard.writeText(data.secret)
+          setSecretCopied(true)
+          setTimeout(() => setSecretCopied(false), 2000)
+        } catch { setError("서명키를 복사하지 못했습니다.") }
+      }}>{secretCopied ? "서명키 복사됨" : "웹훅 서명키 복사"}</button>}
+      {!editing && error && <p role="alert" className="text-xs text-red-400">{error}</p>}
       {editing ? (
         <div className="space-y-2">
           <div className="flex gap-2">
@@ -120,6 +129,34 @@ function WebhookSection({ client, onUpdate }: { client: Client; onUpdate: () => 
       )}
     </div>
   )
+}
+
+function WebhookDeliveries() {
+  type Delivery = { id: string; status: string; attempts: number; last_error: string | null }
+  const [deliveries, setDeliveries] = useState<Delivery[] | null>(null)
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const load = async () => {
+    setLoading(true); setError("")
+    try { setDeliveries(await adminFetch<Delivery[]>("/admin/webhooks")) }
+    catch { setError("웹훅 발송 현황을 불러오지 못했습니다.") }
+    finally { setLoading(false) }
+  }
+  const labels: Record<string, string> = { PENDING: "대기", PROCESSING: "발송 중", DELIVERED: "전달 완료", FAILED: "실패" }
+  return <Card><CardContent className="p-4 space-y-3">
+    <Button size="sm" variant="ghost" onClick={load} disabled={loading}>웹훅 발송 현황 {loading ? "조회 중" : "조회 / 새로고침"}</Button>
+    {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+    {deliveries?.length === 0 && <p className="text-xs text-slate-500">발송 기록이 없습니다.</p>}
+    <div className="max-h-64 overflow-y-auto space-y-2">{deliveries?.map(delivery => <div key={delivery.id} className="flex items-center gap-3 text-xs text-slate-400">
+      <span className="font-mono truncate flex-1">{delivery.id}</span>
+      <span>{labels[delivery.status] ?? delivery.status} · {delivery.attempts}회</span>
+      {delivery.last_error && <span>{delivery.last_error}</span>}
+      {delivery.status === "FAILED" && <Button size="sm" variant="ghost" onClick={async () => {
+        try { await adminFetch(`/admin/webhooks/${delivery.id}/retry`, { method: "POST" }); await load() }
+        catch { setError("재시도를 예약하지 못했습니다. 발송 현황을 다시 확인하세요.") }
+      }}>재시도</Button>}
+    </div>)}</div>
+  </CardContent></Card>
 }
 
 export default function AdminPage() {
@@ -198,6 +235,7 @@ export default function AdminPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold text-slate-100">API 키 관리</h1>
+      <WebhookDeliveries />
 
       {error && (
         <div className="flex items-center gap-2 text-sm text-red-400 bg-red-950/30 px-4 py-3 rounded-md">

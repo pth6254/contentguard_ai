@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type RiskLevel } from "@/lib/api"
-import { getToken } from "@/lib/auth"
+import { getToken, authenticatedFetch } from "@/lib/auth"
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
@@ -182,7 +182,7 @@ function CrawlTab({ onCrawlingChange }: { onCrawlingChange: (v: boolean) => void
     abortRef.current = new AbortController()
     try {
       const token = getToken()
-      const res = await fetch("/api/crawl", {
+      const res = await authenticatedFetch("/api/crawl", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -17,6 +17,7 @@ interface Props {
  * 겹치는 스팬은 앞의 것을 우선하고 뒤의 것은 건너뛴다.
  */
 export function HighlightedText({ text, spans }: Props) {
+  const characters = Array.from(text)
   if (!spans || spans.length === 0) {
     return <span className="text-sm text-slate-200">{text}</span>
   }
@@ -24,7 +25,8 @@ export function HighlightedText({ text, spans }: Props) {
   // 겹침 제거: start_index 오름차순 정렬 후 끝점 기준 겹침 필터링
   const sorted = [...spans]
     .sort((a, b) => a.start_index - b.start_index)
-    .filter((s) => s.start_index >= 0 && s.end_index <= text.length && s.start_index < s.end_index)
+    .filter((s) => s.start_index >= 0 && s.end_index <= characters.length && s.start_index < s.end_index
+      && characters.slice(s.start_index, s.end_index).join("") === s.text)
 
   const deduped: EvidenceSpan[] = []
   let cursor = 0
@@ -41,7 +43,7 @@ export function HighlightedText({ text, spans }: Props) {
     if (span.start_index > pos) {
       parts.push(
         <span key={`pre-${pos}`} className="text-slate-200">
-          {text.slice(pos, span.start_index)}
+          {characters.slice(pos, span.start_index).join("")}
         </span>
       )
     }
@@ -51,15 +53,15 @@ export function HighlightedText({ text, spans }: Props) {
         className={SEVERITY_STYLE[span.severity] ?? SEVERITY_STYLE.low}
         title={span.category}
       >
-        {text.slice(span.start_index, span.end_index)}
+        {characters.slice(span.start_index, span.end_index).join("")}
       </span>
     )
     pos = span.end_index
   }
-  if (pos < text.length) {
+  if (pos < characters.length) {
     parts.push(
       <span key="tail" className="text-slate-200">
-        {text.slice(pos)}
+        {characters.slice(pos).join("")}
       </span>
     )
   }

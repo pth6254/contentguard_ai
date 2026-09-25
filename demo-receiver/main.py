@@ -1,6 +1,10 @@
 import os
 import sqlite3
 import time
+import hashlib
+import hmac
+import json
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -10,9 +14,10 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Demo Client Service")
 
-DB_PATH = "/data/demo.db"
+DB_PATH = os.getenv("DEMO_DB_PATH", "/data/demo.db")
 CONTENTGUARD_URL = os.getenv("CONTENTGUARD_URL", "http://backend:8000")
 API_KEY = os.getenv("DEMO_CLIENT_API_KEY", "")
+WEBHOOK_SECRET = os.getenv("DEMO_WEBHOOK_SECRET", "")
 
 ACTION_MESSAGES = {
     "REMOVED":   "🗑️  콘텐츠 삭제 처리 완료",
@@ -39,6 +44,8 @@ def init_db():
                 created_at    TEXT NOT NULL
             )
         """)
+        if "review_version" not in {row[1] for row in conn.execute("PRAGMA table_info(reviews)")}:
+            conn.execute("ALTER TABLE reviews ADD COLUMN review_version INTEGER NOT NULL DEFAULT 0")
 
 @contextmanager
 def get_db():
@@ -88,7 +95,7 @@ async def submit_review(body: ReviewSubmit, background_tasks: BackgroundTasks):
     2. 백그라운드에서 ContentGuard API 분석 요청
     3. 분석 완료 시 DB risk_level 업데이트 → PENDING 상태로 전환
     """
-    content_id = f"demo-{int(time.time())}"
+    content_id = f"demo-{uuid.uuid4().hex}"
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with get_db() as conn:
@@ -105,7 +112,25 @@ async def submit_review(body: ReviewSubmit, background_tasks: BackgroundTasks):
 @app.post("/webhook")
 async def receive_webhook(request: Request):
     """ContentGuard 심사 완료 시 호출 → 데모 DB 상태 업데이트"""
-    payload = await request.json()
+    if not WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook signing secret not configured")
+    body = await request.body()
+    timestamp = request.headers.get("X-ContentGuard-Timestamp", "")
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid webhook timestamp")
+    expected = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get("X-ContentGuard-Signature", "")):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        payload = json.loads(body)
+        version = payload["review_version"]
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid webhook payload")
     content_id    = payload.get("content_id")
     review_status = payload.get("review_status")
     review_action = payload.get("review_action")
@@ -113,8 +138,8 @@ async def receive_webhook(request: Request):
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE reviews SET status=?, review_action=?, reviewed_at=? WHERE content_id=?",
-            (review_status, review_action, reviewed_at, content_id),
+            "UPDATE reviews SET status=?, review_action=?, reviewed_at=?, review_version=? WHERE content_id=? AND review_version < ?",
+            (review_status, review_action, reviewed_at, version, content_id, version),
         )
 
     action_msg = ACTION_MESSAGES.get(review_status, f"상태 처리: {review_status}")

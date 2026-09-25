@@ -1,4 +1,4 @@
-from models import Content
+from models import Client, Content
 from tests.conftest import MOCK_FINAL_RESULT
 
 
@@ -102,7 +102,9 @@ class TestContentStatusEndpoint:
         assert data["review_status"] == "PENDING"
         assert "text" not in data
 
-    def test_returns_403_for_other_clients_content(self, client, db_session, mock_predict):
+    def test_returns_404_for_other_clients_content(self, client, db_session, mock_predict):
+        db_session.add(Client(id=999, name="other-client"))
+        db_session.commit()
         other_content = Content(
             content_id="OTHER001",
             text="다른 클라이언트 콘텐츠",
@@ -115,7 +117,7 @@ class TestContentStatusEndpoint:
         db_session.commit()
 
         response = client.get("/api/contents/OTHER001/status")
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     def test_returns_404_for_nonexistent_content(self, client):
         response = client.get("/api/contents/NOTFOUND/status")

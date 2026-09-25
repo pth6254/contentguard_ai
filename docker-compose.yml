@@ -4,10 +4,10 @@ services:
     container_name: contentguard-postgres
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: contentguard_db
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -18,13 +18,14 @@ services:
       retries: 5
 
   pgadmin:
+    profiles: ["tools"]
     image: dpage/pgadmin4
     container_name: contentguard-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-}
     ports:
-      - "5051:80"
+      - "127.0.0.1:5051:80"
     depends_on:
       - db
     restart: unless-stopped
@@ -36,11 +37,30 @@ services:
     container_name: contentguard-backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg2://admin:admin@db:5432/contentguard_db
+      DATABASE_URL: postgresql+psycopg2://admin:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/contentguard_db
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  webhook-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://admin:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/contentguard_db
+    command: ["python", "webhook_worker.py"]
+    depends_on:
+      backend:
         condition: service_healthy
     restart: unless-stopped
 
@@ -50,21 +70,22 @@ services:
       dockerfile: dashboard/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://backend:8000
-        NEXT_PUBLIC_ADMIN_SECRET: ${ADMIN_SECRET:-}
     container_name: contentguard-dashboard
     ports:
-      - "3000:3000"
+      - "${DASHBOARD_PORT:-3000}:3000"
     depends_on:
       - backend
     restart: unless-stopped
 
   demo-receiver:
+    profiles: ["demo"]
     build:
       context: ./demo-receiver
     container_name: contentguard-demo-receiver
     environment:
       CONTENTGUARD_URL: http://backend:8000
       DEMO_CLIENT_API_KEY: ${DEMO_CLIENT_API_KEY:-}
+      DEMO_WEBHOOK_SECRET: ${DEMO_WEBHOOK_SECRET:-}
     ports:
       - "9000:9000"
     volumes:

@@ -1,6 +1,6 @@
 import json
 import logging
-import time
+import uuid
 from typing import Generator, Optional
 
 import requests as http
@@ -14,12 +14,10 @@ from database import get_db
 from limiter import limiter
 from models import Client
 from schemas import CrawlRequest
-from services.category_scorer import compute_category_scores
+from services.analysis_service import analyze_text
 from services.content_service import save_analysis
-from services.decision_policy_service import apply_forced_escalation
-from services.evidence_service import extract_evidence_spans
-from services.llm_service import extract_texts, classify_and_explain
-from services.rule_detector import mask_pii, detect_rules
+from services.llm_service import extract_texts
+from services.rule_detector import mask_pii
 
 logger = logging.getLogger(__name__)
 
@@ -79,73 +77,27 @@ def _stream(
 
     # 3단계: 항목별 LLM 분류 및 저장
     saved = skipped = errors = 0
-    prefix = f"CRAWL_{int(time.time())}"
+    prefix = f"CRAWL_{uuid.uuid4().hex}"
 
     for i, text in enumerate(texts, start=1):
         content_id = f"{prefix}_{i:03d}"
         try:
-            masked_text, detected_pii = mask_pii(text)
-            category_hints = compute_category_scores(text)
-            triggered_rules_obj = detect_rules(text, detected_pii)
-            triggered_rules = [r.to_dict() for r in triggered_rules_obj]
-
-            # LLM 분류 + 설명 (1회 호출, NO_THINK 상시 활성)
-            llm_result = classify_and_explain(masked_text, category_hints, triggered_rules)
-            category_scores = llm_result["category_scores"]
-
-            final_score, final_grade, final_action = apply_forced_escalation(
-                llm_result["risk_score"], triggered_rules_obj
-            )
-            final = {
-                "risk_score": final_score,
-                "risk_level": final_grade,
-                "recommended_action": final_action,
-            }
-
-            evidence_spans = extract_evidence_spans(masked_text, category_scores)
-
-            # HIGH/CRITICAL 심층 분석 (LLM_DEEP_ANALYSIS=true 시 활성)
-            deep_analysis = None
-            if settings.LLM_DEEP_ANALYSIS and final_grade in ("HIGH", "CRITICAL"):
-                from services.deep_analysis import analyze_deeply
-                deep_analysis = analyze_deeply(
-                    text, final_grade, category_scores, triggered_rules, evidence_spans
-                )
-
-            explanation_json = {
-                "summary":                    llm_result.get("summary", ""),
-                "score_explanation":          llm_result.get("score_explanation", ""),
-                "main_reasons":               llm_result.get("main_reasons", []),
-                "evidence":                   llm_result.get("evidence", []),
-                "recommended_operator_check": llm_result.get("recommended_operator_check", ""),
-                "confidence_note":            llm_result.get("confidence_note", ""),
-            }
-            if deep_analysis:
-                explanation_json["deep_analysis"] = deep_analysis
-
-            record = save_analysis(
-                db, content_id, text, client_id, [], final,
-                explanation=explanation_json.get("summary", ""),
-                category_scores=category_scores,
-                triggered_rules=triggered_rules,
-                evidence_spans=evidence_spans,
-                explanation_json=explanation_json,
-                calibrated_score=llm_result["risk_score"],
-            )
+            analysis = analyze_text(text)
+            record = save_analysis(db=db, content_id=content_id, client_id=client_id, **analysis)
             saved += 1
 
             yield _sse({
                 "type": "item",
                 "content_id": content_id,
-                "text": text,
+                "text": record.text,
                 "risk_level": record.risk_level,
                 "risk_score": record.risk_score,
-                "triggered_rules": len(triggered_rules),
+                "triggered_rules": len(record.triggered_rules or []),
             })
         except Exception as e:
             errors += 1
-            logger.error("크롤링 항목 분석 실패: content_id=%s error=%s", content_id, e)
-            yield _sse({"type": "item_error", "text": text[:40], "reason": str(e)})
+            logger.error("크롤링 항목 분석 실패: content_id=%s type=%s", content_id, type(e).__name__)
+            yield _sse({"type": "item_error", "text": mask_pii(text)[0][:40], "reason": "항목 분석에 실패했습니다."})
 
     logger.info("크롤링 완료: url=%s saved=%d skipped=%d errors=%d", url, saved, skipped, errors)
     yield _sse({"type": "done", "saved": saved, "skipped": skipped, "errors": errors})

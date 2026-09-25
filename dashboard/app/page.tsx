@@ -116,7 +116,7 @@ export default function DashboardPage() {
             {loading ? (
               <p className="text-slate-500 text-sm">불러오는 중...</p>
             ) : recent.map(c => (
-              <div key={c.content_id} className="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
+              <div key={c.id} className="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
                 <Badge variant={c.risk_level}>{c.risk_level}</Badge>
                 <p className="flex-1 text-sm text-slate-300 truncate">{c.text}</p>
                 <Badge variant={c.review_status}>{STATUS_LABEL[c.review_status]}</Badge>

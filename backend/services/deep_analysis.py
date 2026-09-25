@@ -13,8 +13,20 @@ HIGH/CRITICAL 케이스에서만 호출해 비용 부담을 제한한다.
 """
 import json
 import logging
+from typing import Literal
+from pydantic import BaseModel, ConfigDict
+from services.rule_detector import mask_pii
 
 logger = logging.getLogger(__name__)
+
+
+class _DeepResult(BaseModel):
+    model_config = ConfigDict(strict=True)
+    is_targeted: bool
+    is_immediate: bool
+    actionability: Literal["low", "medium", "high"]
+    target_description: str
+    suggested_action: str
 
 _SYSTEM = """당신은 콘텐츠 안전 전문 분석가입니다.
 위험 판정이 내려진 콘텐츠를 심층 분석해 운영자의 의사결정을 지원합니다.
@@ -71,7 +83,7 @@ def analyze_deeply(
 
     prompt = _PROMPT.format(
         grade=final_grade,
-        text=text[:600],
+        text=mask_pii(text)[0],
         cats=cats,
         rules=rules,
         spans=spans,
@@ -79,24 +91,18 @@ def analyze_deeply(
 
     try:
         client = _get_client("explain")
-        raw    = client.chat(_SYSTEM, prompt)
+        raw    = client.chat(_SYSTEM, mask_pii(prompt)[0])
         start  = raw.find("{")
         end    = raw.rfind("}") + 1
         if start == -1 or end == 0:
             raise ValueError("JSON 없음")
         parsed = json.loads(raw[start:end])
-        result = {
-            "is_targeted":        bool(parsed.get("is_targeted", False)),
-            "is_immediate":       bool(parsed.get("is_immediate", False)),
-            "actionability":      str(parsed.get("actionability", "low")),
-            "target_description": str(parsed.get("target_description", "불특정")),
-            "suggested_action":   str(parsed.get("suggested_action", "")),
-        }
+        result = _DeepResult.model_validate(parsed).model_dump()
         logger.info(
             "Deep analysis — grade=%s targeted=%s immediate=%s actionability=%s",
             final_grade, result["is_targeted"], result["is_immediate"], result["actionability"],
         )
         return result
     except Exception as exc:
-        logger.warning("Deep analysis 실패: %s", exc)
+        logger.warning("Deep analysis 실패: %s", type(exc).__name__)
         return None

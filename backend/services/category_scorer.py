@@ -44,6 +44,8 @@ _BENIGN = re.compile(
 
 def _context_factor(text: str, kw: str, pos: int) -> float:
     """키워드 주변 ±CONTEXT_WINDOW 문자 안에 부정어나 무해 신호가 있으면 DAMPEN_FACTOR를 반환한다."""
+    if kw == "년" and re.search(r'\d\s*$', text[:pos]):
+        return 0.0
     start = max(0, pos - _CONTEXT_WINDOW)
     end   = min(len(text), pos + len(kw) + _CONTEXT_WINDOW)
     ctx   = text[start:end]
@@ -261,5 +263,4 @@ def compute_category_scores(text: str) -> dict[str, int]:
         scores[cat] = round(max_w * 100)
 
     return scores
-
 

@@ -43,6 +43,7 @@ class TriggeredRule:
     min_grade: str      # 이 규칙이 요구하는 최소 등급
     category: str       # 위험 카테고리
     matched_text: str = ""
+    review_only: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -51,6 +52,7 @@ class TriggeredRule:
             "min_grade": self.min_grade,
             "category": self.category,
             "matched_text": self.matched_text,
+            "review_only": self.review_only,
         }
 
 
@@ -89,7 +91,10 @@ def detect_rules(text: str, detected_pii: list[str]) -> list[TriggeredRule]:
             matched_text=", ".join(detected_pii),
         ))
 
-    m = _THREAT_RE.search(text)
+    threat_matches = list(_THREAT_RE.finditer(text))
+    m = next((match for match in threat_matches
+              if match.group(0) not in ("폭탄", "테러") and not _reported_context(text, match)),
+             threat_matches[0] if threat_matches else None)
     if m:
         rules.append(TriggeredRule(
             rule_id="DIRECT_THREAT",
@@ -97,9 +102,12 @@ def detect_rules(text: str, detected_pii: list[str]) -> list[TriggeredRule]:
             min_grade="HIGH",
             category="threat",
             matched_text=m.group(0),
+            review_only=m.group(0) in ("폭탄", "테러") or _reported_context(text, m),
         ))
 
-    m = _SELF_HARM_RE.search(text)
+    harm_matches = list(_SELF_HARM_RE.finditer(text))
+    m = next((match for match in harm_matches if not _reported_context(text, match)),
+             harm_matches[0] if harm_matches else None)
     if m:
         rules.append(TriggeredRule(
             rule_id="SELF_HARM",
@@ -107,6 +115,7 @@ def detect_rules(text: str, detected_pii: list[str]) -> list[TriggeredRule]:
             min_grade="CRITICAL",
             category="self_harm",
             matched_text=m.group(0),
+            review_only=_reported_context(text, m),
         ))
 
     m = _PHISHING_RE.search(text)
@@ -117,6 +126,7 @@ def detect_rules(text: str, detected_pii: list[str]) -> list[TriggeredRule]:
             min_grade="HIGH",
             category="policy_violation",
             matched_text=m.group(0)[:80],
+            review_only=True,
         ))
 
     m = _DOXXING_RE.search(text)
@@ -130,3 +140,12 @@ def detect_rules(text: str, detected_pii: list[str]) -> list[TriggeredRule]:
         ))
 
     return rules
+
+
+def _reported_context(text: str, match: re.Match) -> bool:
+    """인용·지원 맥락은 검토 신호로 남기고 최종 위험도는 분류기에 맡긴다."""
+    before = text[max(0, match.start() - 1):match.start()]
+    after = text[match.end():match.end() + 50]
+    quoted = before in ('"', "'", "“", "‘") and bool(re.search(r'["\'”’]', after))
+    prevention = bool(re.match(r'\s*(?:예방|방지|하지\s*않|하지\s*마)', after))
+    return quoted or prevention

@@ -57,7 +57,7 @@ def signup(request: Request, body: ClientSignupRequest, db: Session = Depends(ge
     db.refresh(client)
 
     token = create_access_token(sub=str(client.id), role="client", name=client.name)
-    logger.info("클라이언트 가입: id=%d email=%s", client.id, client.email)
+    logger.info("클라이언트 가입: id=%d", client.id)
     return TokenResponse(access_token=token, expires_in=settings.JWT_EXPIRE_MINUTES * 60)
 
 

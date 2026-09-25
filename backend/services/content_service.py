@@ -49,6 +49,7 @@ def save_analysis(
         db.bulk_insert_mappings(ModelPrediction, [
             {
                 "content_id": content_id,
+                "content_record_id": record.id,
                 "model_name": pred["model_name"],
                 "model_version": pred["model_version"],
                 "model_type": pred["model_type"],

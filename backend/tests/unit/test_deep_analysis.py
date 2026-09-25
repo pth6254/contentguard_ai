@@ -79,16 +79,12 @@ class TestAnalyzeDeeply:
             result = analyze_deeply("텍스트", "HIGH", _CAT_SCORES, _RULES, _SPANS)
         assert result is None
 
-    def test_missing_fields_use_defaults(self):
+    def test_missing_fields_rejected(self):
         partial = {"is_targeted": True}
         with patch("services.llm_service._get_client", return_value=_make_client(partial)):
             from services.deep_analysis import analyze_deeply
             result = analyze_deeply("텍스트", "HIGH", _CAT_SCORES, _RULES, _SPANS)
-        assert result is not None
-        assert result["is_immediate"] is False
-        assert result["actionability"] == "low"
-        assert result["target_description"] == "불특정"
-        assert result["suggested_action"] == ""
+        assert result is None
 
     def test_grade_appears_in_prompt(self):
         mock_client = _make_client(_VALID_RESULT)
@@ -115,11 +111,11 @@ class TestAnalyzeDeeply:
         called_prompt = mock_client.chat.call_args[0][1]
         assert "없음" in called_prompt
 
-    def test_text_truncated_to_600_chars(self):
+    def test_full_text_included(self):
         long_text = "다" * 800
         mock_client = _make_client(_VALID_RESULT)
         with patch("services.llm_service._get_client", return_value=mock_client):
             from services.deep_analysis import analyze_deeply
             analyze_deeply(long_text, "HIGH", _CAT_SCORES, _RULES, _SPANS)
         called_prompt = mock_client.chat.call_args[0][1]
-        assert "다" * 601 not in called_prompt
+        assert long_text in called_prompt

@@ -3,12 +3,12 @@ import logging
 import secrets
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from auth import get_current_operator
 from database import get_db
-from models import ApiKey, Client, Operator
+from models import ApiKey, Client, Content, Operator, WebhookDelivery
 from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse, ClientUpdate, WebhookUrlUpdate
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,9 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
+    if db.query(Content.id).filter(Content.client_id == client_id).first():
+        raise HTTPException(status_code=409, detail="콘텐츠가 남아 있는 클라이언트는 삭제할 수 없습니다. 콘텐츠를 먼저 정리하세요.")
+    db.query(ApiKey).filter(ApiKey.client_id == client_id).delete(synchronize_session=False)
     db.delete(client)
     db.commit()
     logger.info("클라이언트 삭제: id=%d name=%s", client_id, client.name)
@@ -76,7 +79,7 @@ def update_webhook(client_id: int, body: WebhookUrlUpdate, db: Session = Depends
     client.webhook_url = body.webhook_url
     db.commit()
     db.refresh(client)
-    logger.info("웹훅 URL 업데이트: client_id=%d url=%s", client_id, body.webhook_url)
+    logger.info("웹훅 URL 업데이트: client_id=%d", client_id)
     return client
 
 
@@ -144,3 +147,33 @@ def list_operators(db: Session = Depends(get_db)):
          "is_active": op.is_active, "created_at": op.created_at}
         for op in ops
     ]
+
+
+@router.get("/clients/{client_id}/webhook-secret", dependencies=[Depends(get_current_operator)])
+def webhook_secret(client_id: int, response: Response, db: Session = Depends(get_db)):
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
+    response.headers["Cache-Control"] = "no-store"
+    return {"secret": client.webhook_secret}
+
+
+@router.get("/webhooks", dependencies=[Depends(get_current_operator)])
+def webhook_deliveries(db: Session = Depends(get_db)):
+    rows = db.query(WebhookDelivery).order_by(WebhookDelivery.next_attempt_at.desc()).limit(100).all()
+    return [{"id": r.id, "review_event_id": r.review_event_id, "status": r.status,
+             "attempts": r.attempts, "last_error": r.last_error,
+             "next_attempt_at": r.next_attempt_at, "delivered_at": r.delivered_at} for r in rows]
+
+
+@router.post("/webhooks/{delivery_id}/retry", status_code=204, dependencies=[Depends(get_current_operator)])
+def retry_webhook(delivery_id: str, db: Session = Depends(get_db)):
+    from datetime import datetime
+    delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).with_for_update().first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="발송 기록을 찾을 수 없습니다.")
+    if delivery.status != "FAILED":
+        raise HTTPException(status_code=409, detail="최종 실패한 발송만 재시도할 수 있습니다.")
+    delivery.status, delivery.attempts = "PENDING", 0
+    delivery.next_attempt_at = datetime.utcnow()
+    db.commit()

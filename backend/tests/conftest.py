@@ -3,7 +3,10 @@ import os
 from pathlib import Path
 
 _TEST_DB_PATH = Path(__file__).parent / "test_contentguard.db"
-os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH}"
+_TEST_URL = os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_TEST_DB_PATH}")
+if not _TEST_URL.startswith("sqlite:") and not _TEST_URL.split("?", 1)[0].endswith("/contentguard_test"):
+    raise RuntimeError("TEST_DATABASE_URL must point to the disposable contentguard_test database")
+os.environ["DATABASE_URL"] = _TEST_URL
 os.environ.setdefault("MODEL_PRIMARY", "logistic_regression")
 os.environ.setdefault("DECISION_POLICY", "primary_only")
 os.environ.setdefault("ADMIN_SECRET", "test-secret")
@@ -16,7 +19,7 @@ OPERATOR_SECRET = os.environ["ADMIN_SECRET"]
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch
 
@@ -26,9 +29,13 @@ from models import Client, Operator
 from auth import get_client, get_client_or_operator, get_current_operator, require_operator
 
 _test_engine = create_engine(
-    f"sqlite:///{_TEST_DB_PATH}",
-    connect_args={"check_same_thread": False},
+    _TEST_URL,
+    connect_args={"check_same_thread": False} if _TEST_URL.startswith("sqlite:") else {},
 )
+if _TEST_URL.startswith("sqlite:"):
+    @event.listens_for(_test_engine, "connect")
+    def _enable_foreign_keys(connection, _):
+        connection.execute("PRAGMA foreign_keys=ON")
 _TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_test_engine)
 
 MOCK_PREDICTIONS = [
@@ -81,6 +88,8 @@ MOCK_FINAL_RESULT = {
 def db_session():
     Base.metadata.create_all(bind=_test_engine)
     session = _TestingSessionLocal()
+    session.add(Client(name="test-client"))
+    session.commit()
     try:
         yield session
     finally:
@@ -169,22 +178,7 @@ _MOCK_ESCALATION = (
 
 @pytest.fixture
 def mock_predict():
-    with (
-        # analyze 라우터
-        patch("routers.analyze.classify_and_explain", return_value=MOCK_CLASSIFY_RESULT),
-        patch("routers.analyze.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
-        patch("routers.analyze.detect_rules", return_value=[]),
-        patch("routers.analyze.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
-        patch("routers.analyze.apply_forced_escalation", return_value=_MOCK_ESCALATION),
-        patch("routers.analyze.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
-        # crawl 라우터
-        patch("routers.crawl.classify_and_explain", return_value=MOCK_CLASSIFY_RESULT),
-        patch("routers.crawl.mask_pii", return_value=("테스트 콘텐츠입니다", [])),
-        patch("routers.crawl.detect_rules", return_value=[]),
-        patch("routers.crawl.compute_category_scores", return_value=MOCK_CATEGORY_SCORES),
-        patch("routers.crawl.apply_forced_escalation", return_value=_MOCK_ESCALATION),
-        patch("routers.crawl.extract_evidence_spans", return_value=MOCK_EVIDENCE_SPANS),
-    ):
+    with patch("services.analysis_service.classify_and_explain", return_value=MOCK_CLASSIFY_RESULT):
         yield
 
 
