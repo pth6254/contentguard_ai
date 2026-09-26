@@ -18,6 +18,7 @@ from services.analysis_service import analyze_text
 from services.content_service import save_analysis
 from services.llm_service import extract_texts
 from services.rule_detector import mask_pii
+from services.policy_service import load_policy
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,8 @@ def _stream(
     for i, text in enumerate(texts, start=1):
         content_id = f"{prefix}_{i:03d}"
         try:
-            analysis = analyze_text(text)
-            record = save_analysis(db=db, content_id=content_id, client_id=client_id, **analysis)
+            analysis = analyze_text(text, policy=load_policy(db, client_id))
+            record = save_analysis(db=db, content_id=content_id, client_id=client_id, source="crawl", **analysis)
             saved += 1
 
             yield _sse({

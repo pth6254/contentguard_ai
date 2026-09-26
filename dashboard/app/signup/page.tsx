@@ -18,7 +18,7 @@ export default function SignupPage() {
   const [loading, setLoading]   = useState(false)
 
   useEffect(() => {
-    if (isLoggedIn()) router.replace("/my-keys")
+    if (isLoggedIn()) router.replace("/my-dashboard")
   }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,7 +31,7 @@ export default function SignupPage() {
     setError(null)
     try {
       await api.signup(name, email, password)
-      router.replace("/my-keys")
+      router.replace("/my-dashboard")
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "회원가입에 실패했습니다.")
     } finally {

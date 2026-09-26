@@ -36,6 +36,7 @@ def review_content(content_id: str, request: ReviewRequest, record_id: int | Non
         Content.review_action: request.action, Content.review_status: event.status,
         Content.reviewer_comment: comment, Content.reviewed_at: now,
         Content.review_version: version + 1,
+        Content.needs_re_review: False,
     }, synchronize_session=False)
     if changed != 1:
         db.rollback()

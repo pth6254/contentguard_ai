@@ -10,6 +10,8 @@
 - Ollama / OpenAI / Anthropic / Gemini / DeepSeek 분석·추출 공급자
 - Firecrawl 및 BeautifulSoup → Trafilatura → LLM 텍스트 추출
 - DB에 저장하는 심사 변경 이력과 웹훅 발송 큐, 별도 웹훅 worker
+- 분석 작업 큐와 별도 analysis worker, 재분석 이력, 명시적 평가 정답
+- 고객별 정책, 고객 전용 현황 화면, CSV/XLSX 대량 접수
 
 현재 신규 분석은 LLM과 규칙을 사용합니다. 기존 `ModelPrediction` 데이터는 이전 모델 예측 조회용으로 보존합니다.
 `MODEL_PRIMARY`, `DECISION_POLICY`는 현재 분석 설정이 아닙니다. 파일 업로드 API는 제공하지 않습니다.
@@ -38,12 +40,13 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d --build
 ```
 
-- 대시보드: http://localhost:3000
+- 대시보드: 기본 http://localhost:3000 (현재 로컬 배포는 http://localhost:3003)
 - `DASHBOARD_PORT`로 대시보드 포트를 변경할 수 있습니다. 변경한 주소를 `ALLOWED_ORIGINS`에도 추가하세요.
 - API 문서: http://localhost:8000/docs
 - DB: 로컬 머신의 `127.0.0.1:5434`
 - 백엔드 시작 명령은 `alembic upgrade head` 이후 서버를 실행합니다.
 - `webhook-worker`는 백엔드 준비 완료 후 실행되어 미전송 건을 처리합니다.
+- `analysis-worker`는 오래 걸리는 분석 작업과 재분석을 처리합니다.
 - pgAdmin은 `PGADMIN_PASSWORD`를 설정한 뒤 `docker compose --profile tools up -d pgadmin`으로 실행합니다.
 - 데모는 `DEMO_CLIENT_API_KEY`, `DEMO_WEBHOOK_SECRET`을 설정한 뒤 `--profile demo`로 실행합니다.
 
@@ -71,6 +74,16 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 마스킹은 전화번호·이메일·주민번호·카드번호 패턴을 대상으로 하며 모든 형태의 개인정보를 식별하는 것은 아닙니다.
 기존 DB 원문은 마이그레이션에서 자동 변경하지 않습니다. 과거 데이터의 마스킹·보관 기간은 별도로 정해야 합니다.
 
+긴 분석은 `POST /api/jobs/analyze`로 접수하고 `GET /api/jobs/{id}`로 상태를 조회할 수 있습니다.
+작업은 `PENDING → PROCESSING → COMPLETED` 또는 `FAILED/CANCELLED` 상태를 가지며 실패 작업은 재시도할 수 있습니다.
+작업 입력은 DB 저장 전에 개인정보 패턴을 마스킹합니다. 탐지한 개인정보 유형은 별도 저장하여 분석 규칙에 반영합니다.
+운영자 재분석은 기존 심사 결정을 덮어쓰지 않고 `needs_re_review`로 다시 심사해야 함을 표시합니다.
+
+분석 실행마다 모델·프롬프트·정책 버전, 처리 시간, 판정·설명 스냅샷을 저장합니다.
+운영자가 명시적으로 등록한 정답만 AI 평가에 사용하며, 승인·보류·삭제 조치를 정답 등급으로 변환하지 않습니다.
+평가 화면의 정확도·고위험 정밀도·재현율은 정상 완료된 분석과 등록된 정답의 비교입니다.
+임시 분석과 과거 상태 미기록 데이터는 수치에서 제외하고 제외 건수를 표시합니다.
+
 ## 인증과 콘텐츠 식별
 
 - 클라이언트: `/auth/signup` 또는 `/auth/login`으로 JWT를 받아 `/auth/keys`에서 API 키를 발급합니다.
@@ -94,6 +107,14 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 | `GET /api/contents/{content_id}/status` | 클라이언트 자신의 심사 상태 |
 | `GET /api/contents` | 운영자 검색·필터·페이지 조회 |
 | `GET /api/contents/{content_id}?record_id=...` | 운영자 상세 조회 |
+| `GET /api/contents/{content_id}/analyses?record_id=...` | 분석 실행 이력 |
+| `POST /api/contents/{content_id}/reanalyze?record_id=...` | 운영자 재분석 작업 접수 |
+| `POST /api/jobs/analyze`, `GET /api/jobs/{id}` | 비동기 분석 접수·상태 조회 |
+| `POST /api/jobs/{id}/retry`, `/cancel` | 실패 재시도·진행 작업 취소 |
+| `PUT /api/evaluations/labels/{record_id}`, `GET /api/evaluations/summary` | 정답 등록·품질 지표 |
+| `GET/PUT /api/policies/{client_id}`, `POST /api/policies/{client_id}/preview` | 고객별 정책과 변경 예상 |
+| `POST /api/batches/preview`, `POST /api/batches`, `GET /api/batches` | CSV/XLSX 미리보기·대량 접수·현황 |
+| `GET /auth/dashboard`, `/auth/contents`, `/auth/webhooks` | 고객 본인 데이터 현황 |
 | `DELETE /api/contents/{content_id}?record_id=...` | 콘텐츠 삭제. 심사 변경 이력은 보존 |
 | `POST /api/reviews/{content_id}?record_id=...` | `{action, comment, expected_version}` 심사 |
 | `GET /api/reviews/{content_id}/history?record_id=...` | 최근 심사 변경 이력 100건 |
@@ -108,6 +129,12 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 심사 요청의 `expected_version`은 조회한 `review_version`을 전달합니다. 값이 오래되었으면 409로 거절합니다.
 기존 API 호환을 위해 생략은 허용하지만, 대시보드는 항상 버전을 전달합니다.
 고객에게 콘텐츠가 남아 있으면 고객 삭제는 409입니다. 콘텐츠가 없는 고객을 삭제하면 API 키도 함께 삭제됩니다.
+
+고객 정책은 카테고리 점수가 설정한 기준을 넘으면 최소 위험 등급을 올리거나 직접 검토를 요구합니다.
+기본 규칙을 낮추지 않으며, 변경은 이후 분석과 재분석부터 적용됩니다. 미리보기는 최근 100건에 대한 정책 규칙만 계산합니다.
+
+CSV/XLSX 업로드는 최대 2MB·500행입니다. 첫 행의 열 이름에서 콘텐츠 ID·텍스트 열을 선택하고 미리보기 후 접수합니다.
+파일 원본은 보관하지 않고 유효 행을 개별 분석 작업으로 저장합니다. 진행 현황은 대량 분석 화면과 `GET /api/batches`에서 조회할 수 있습니다.
 
 ## 웹훅 수신 계약
 
@@ -143,6 +170,7 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 ```bash
 cd backend
 python webhook_worker.py
+python analysis_worker.py
 ```
 
 ## 검증
@@ -163,15 +191,16 @@ GitHub Actions는 PostgreSQL 17 통합 테스트와 깨끗한 체크아웃의 �
 
 ## 기존 환경 업그레이드
 
-새 마이그레이션 `e91a2b4c630f`는 고객별 ID 제약, 예측의 내부 레코드 참조,
-고객별 웹훅 서명키, 심사 버전·이력, 웹훅 발송 테이블을 추가합니다.
+이전 마이그레이션 `e91a2b4c630f`는 고객별 ID 제약, 예측의 내부 레코드 참조,
+고객별 웹훅 서명키, 심사 버전·이력, 웹훅 발송 테이블을 추가했습니다.
+추가 마이그레이션 `f6c20d9a7b41`부터 `d27f9e4056ac`까지는 분석 이력·평가 정답·분석 작업·고객 정책·대량 접수 테이블을 추가합니다.
 운영 DB 백업 후 마이그레이션을 적용하고 백엔드·대시보드·worker를 함께 갱신하세요.
 여러 고객에 동일한 외부 ID가 생긴 뒤에는 이를 정리하기 전까지 구버전 스키마로 되돌릴 수 없습니다.
 
 ## 남은 개선 영역
 
 - 실제 평가 데이터로 카테고리별 오탐·미탐과 인용·우회 표현의 성능 측정
-- 동기 LLM 처리의 처리량 측정 및 필요 시 분석 작업 큐 도입
+- 분석 작업 큐와 동기 API의 실제 처리량·지연 측정 및 필요 시 워커 확장
 - IP 기반 메모리 rate limiter를 운영 토폴로지에 맞춘 계정별·공유 저장소 방식으로 확장
 - 과거 원문 및 감사·발송 데이터의 보존 기간과 정리 정책 수립
 - 공급자 SDK와 배포 의존성의 재현 가능한 버전 관리

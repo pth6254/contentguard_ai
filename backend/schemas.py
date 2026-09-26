@@ -36,6 +36,7 @@ class ContentResponse(BaseModel):
     id: Optional[int] = None
     client_id: Optional[int] = None
     review_version: int = 0
+    needs_re_review: bool = False
     content_id: str
     text: str
     risk_score: float
@@ -173,6 +174,7 @@ class StatsResponse(BaseModel):
     total: int
     by_status: dict[str, int]
     by_level: dict[str, int]
+    re_review_required: int = 0
 
 
 class ModelPredictionResponse(BaseModel):

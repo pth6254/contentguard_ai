@@ -2,12 +2,12 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from auth import require_operator
 from database import get_db
-from models import Content, ModelPrediction
+from models import AnalysisJob, AnalysisRun, Content, EvaluationLabel, ModelPrediction
 from services.content_lookup import find_content
 from schemas import ContentResponse, ModelPredictionResponse, StatsResponse
 
@@ -23,7 +23,8 @@ def get_stats(db: Session = Depends(get_db)):
     by_status   = {row[0]: row[1] for row in status_rows}
     by_level    = {row[0]: row[1] for row in level_rows}
     total       = sum(by_status.values())
-    return StatsResponse(total=total, by_status=by_status, by_level=by_level)
+    re_review = db.query(func.count(Content.id)).filter(Content.needs_re_review.is_(True)).scalar() or 0
+    return StatsResponse(total=total, by_status=by_status, by_level=by_level, re_review_required=re_review)
 
 
 @router.get("/contents", response_model=List[ContentResponse])
@@ -39,7 +40,10 @@ def get_contents(
 ):
     query = db.query(Content)
     if status:
-        query = query.filter(Content.review_status == status.upper())
+        if status.upper() == "PENDING":
+            query = query.filter(or_(Content.review_status == "PENDING", Content.needs_re_review.is_(True)))
+        else:
+            query = query.filter(Content.review_status == status.upper())
     if risk_level:
         query = query.filter(Content.risk_level == risk_level.upper())
     if search:
@@ -69,9 +73,28 @@ def get_content(content_id: str, record_id: Optional[int] = None, db: Session = 
     return find_content(db, content_id, record_id)
 
 
+@router.get("/contents/{content_id}/analyses")
+def get_analysis_history(content_id: str, record_id: Optional[int] = None, db: Session = Depends(get_db)):
+    record = find_content(db, content_id, record_id)
+    runs = (db.query(AnalysisRun).filter(AnalysisRun.content_record_id == record.id)
+            .order_by(AnalysisRun.id.desc()).limit(100).all())
+    return [{"id": run.id, "source": run.source, "status": run.status,
+             "risk_score": run.risk_score, "risk_level": run.risk_level,
+             "provider": run.provider, "model": run.model, "prompt_version": run.prompt_version,
+             "policy_version": run.policy_version, "latency_ms": run.latency_ms,
+             "category_scores": run.category_scores, "explanation_json": run.explanation_json,
+             "created_at": run.created_at} for run in runs]
+
+
 @router.delete("/contents/{content_id}", status_code=204)
 def delete_content(content_id: str, record_id: Optional[int] = None, db: Session = Depends(get_db)):
     record = find_content(db, content_id, record_id)
+    if db.query(AnalysisJob).filter(AnalysisJob.content_record_id == record.id,
+                                    AnalysisJob.status.in_(["PENDING", "PROCESSING"])).first():
+        raise HTTPException(status_code=409, detail="분석 작업이 진행 중입니다. 완료 또는 취소 후 삭제하세요.")
+    db.query(AnalysisJob).filter(AnalysisJob.content_record_id == record.id).delete()
+    db.query(EvaluationLabel).filter(EvaluationLabel.content_record_id == record.id).delete()
+    db.query(AnalysisRun).filter(AnalysisRun.content_record_id == record.id).delete()
     db.query(ModelPrediction).filter(ModelPrediction.content_record_id == record.id).delete()
     db.delete(record)
     db.commit()

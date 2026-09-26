@@ -2,7 +2,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings, LogOut, User } from "lucide-react"
+import { LayoutDashboard, ClipboardList, Search, History, Shield, DatabaseZap, Settings, LogOut, User, ChartNoAxesCombined, ListTodo, SlidersHorizontal, Files } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { getUserName } from "@/lib/auth"
@@ -12,6 +12,10 @@ const NAV = [
   { href: "/queue",   label: "심사 큐",     icon: ClipboardList },
   { href: "/analyze", label: "콘텐츠 분석", icon: Search },
   { href: "/history",  label: "전체 이력",   icon: History },
+  { href: "/evaluation", label: "AI 품질 평가", icon: ChartNoAxesCombined },
+  { href: "/jobs", label: "분석 작업", icon: ListTodo },
+  { href: "/policies", label: "고객별 정책", icon: SlidersHorizontal },
+  { href: "/batches", label: "대량 분석", icon: Files },
   { href: "/collect",  label: "데이터 수집",  icon: DatabaseZap },
   { href: "/admin",    label: "API 키 관리",  icon: Settings },
 ]
@@ -21,9 +25,12 @@ export function Sidebar() {
   const [connected, setConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
-    api.health()
-      .then(() => setConnected(true))
+    const check = () => api.health()
+      .then(health => setConnected(health.status === "ok"))
       .catch(() => setConnected(false))
+    check()
+    const timer = setInterval(check, 30_000)
+    return () => clearInterval(timer)
   }, [])
 
   return (
@@ -33,7 +40,7 @@ export function Sidebar() {
         <span className="font-semibold text-slate-100 text-sm">ContentGuard AI</span>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
@@ -67,7 +74,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2 px-2 text-xs">
           <span className={cn("h-2 w-2 rounded-full shrink-0", connected === true ? "bg-emerald-400" : connected === false ? "bg-red-400" : "bg-slate-500")} />
           <span className="text-slate-400">
-            {connected === true ? "API 연결됨" : connected === false ? "API 연결 안됨" : "확인 중..."}
+            {connected === true ? "서비스 정상" : connected === false ? "서비스 장애 또는 연결 오류" : "확인 중..."}
           </span>
         </div>
 

@@ -11,6 +11,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
 import { CategoryScoreBars } from "@/components/category-score-bars"
 import { HighlightedText } from "@/components/highlighted-text"
+import { AnalysisStatus } from "@/components/analysis-status"
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "전체" },
@@ -44,6 +45,7 @@ function ExpandRow({ item, onReload }: { item: Content; onReload: () => void }) 
         onClick={() => setOpen(o => !o)}
       >
         <Badge variant={item.risk_level}>{item.risk_level}</Badge>
+        <AnalysisStatus content={item} />
         <span className="text-xs font-mono text-slate-500">{item.content_id}</span>
         <p className="flex-1 text-sm text-slate-300 truncate">{item.text}</p>
         <span className="font-mono text-sm text-slate-400">{item.risk_score.toFixed(2)}</span>
@@ -190,6 +192,11 @@ export default function HistoryPage() {
   const [page, setPage]         = useState(0)
   const [total, setTotal]       = useState(0)
   const [pageSize, setPageSize] = useState(30)
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("search")
+    if (requested) setSearch(requested)
+  }, [])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 

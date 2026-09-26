@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_operator
 from database import get_db
-from models import ApiKey, Client, Content, Operator, WebhookDelivery
+from models import AnalysisJob, ApiKey, BatchImport, Client, ClientPolicy, Content, Operator, WebhookDelivery
 from schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyResponse, ClientCreate, ClientResponse, ClientUpdate, WebhookUrlUpdate
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,12 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="클라이언트를 찾을 수 없습니다.")
     if db.query(Content.id).filter(Content.client_id == client_id).first():
         raise HTTPException(status_code=409, detail="콘텐츠가 남아 있는 클라이언트는 삭제할 수 없습니다. 콘텐츠를 먼저 정리하세요.")
+    if db.query(AnalysisJob.id).filter(AnalysisJob.client_id == client_id,
+            AnalysisJob.status.in_(["PENDING", "PROCESSING"])).first():
+        raise HTTPException(status_code=409, detail="진행 중인 분석 작업이 있습니다.")
+    db.query(AnalysisJob).filter(AnalysisJob.client_id == client_id).delete()
+    db.query(BatchImport).filter(BatchImport.client_id == client_id).delete()
+    db.query(ClientPolicy).filter(ClientPolicy.client_id == client_id).delete()
     db.query(ApiKey).filter(ApiKey.client_id == client_id).delete(synchronize_session=False)
     db.delete(client)
     db.commit()

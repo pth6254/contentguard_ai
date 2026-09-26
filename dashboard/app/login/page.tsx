@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isLoggedIn()) {
-      router.replace(getRole() === "client" ? "/my-keys" : "/")
+      router.replace(getRole() === "client" ? "/my-dashboard" : "/")
     }
   }, [router])
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
     setError(null)
     try {
       await api.login(email, password, role)
-      router.replace(getRole() === "client" ? "/my-keys" : "/")
+      router.replace(getRole() === "client" ? "/my-dashboard" : "/")
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다.")
     } finally {

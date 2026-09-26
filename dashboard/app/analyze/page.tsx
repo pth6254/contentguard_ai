@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { CategoryScoreBars } from "@/components/category-score-bars"
 import { HighlightedText } from "@/components/highlighted-text"
+import { AnalysisStatus } from "@/components/analysis-status"
 import { api, type Content, type ModelPrediction, type RiskLevel } from "@/lib/api"
 
 export default function AnalyzePage() {
@@ -93,6 +94,7 @@ export default function AnalyzePage() {
               <CardTitle className="text-slate-100 text-base font-semibold">판정 결과</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <AnalysisStatus content={result} />
               <div className="flex items-center gap-6">
                 <div>
                   <p className="text-xs text-slate-500 mb-1">위험 점수</p>

@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { AnalysisStatus } from "@/components/analysis-status"
 import { api, type Content, type RiskLevel, type ReviewStatus, type Stats } from "@/lib/api"
 
 const REFRESH_INTERVAL = 30_000
@@ -26,6 +27,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setLoading(true)
+    setError(null)
     Promise.all([
       api.getStats(),
       api.getContents({ limit: 5 }),
@@ -53,6 +55,7 @@ export default function DashboardPage() {
   const metrics = [
     { label: "전체 콘텐츠", value: stats?.total ?? 0 },
     { label: "심사 대기",   value: pending,  highlight: pending > 0 },
+    { label: "재심사 필요", value: stats?.re_review_required ?? 0 },
     { label: "승인",        value: stats?.by_status["APPROVED"] ?? 0 },
     { label: "삭제",        value: stats?.by_status["REMOVED"]  ?? 0 },
     { label: "보류",        value: stats?.by_status["HELD"]     ?? 0 },
@@ -60,6 +63,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="rounded border border-red-800 bg-red-950 p-3 text-sm text-red-300">대시보드를 불러오지 못했습니다. <button onClick={() => setRefreshTick(t => t + 1)} className="underline">재시도</button></p>}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-100">대시보드</h1>
         <button
@@ -74,7 +78,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 지표 카드 */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         {metrics.map(({ label, value, highlight }) => (
           <Card key={label}>
             <CardHeader><CardTitle>{label}</CardTitle></CardHeader>
@@ -118,6 +122,7 @@ export default function DashboardPage() {
             ) : recent.map(c => (
               <div key={c.id} className="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
                 <Badge variant={c.risk_level}>{c.risk_level}</Badge>
+                <AnalysisStatus content={c} />
                 <p className="flex-1 text-sm text-slate-300 truncate">{c.text}</p>
                 <Badge variant={c.review_status}>{STATUS_LABEL[c.review_status]}</Badge>
               </div>

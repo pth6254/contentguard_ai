@@ -4,6 +4,9 @@ import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { AnalysisStatus } from "@/components/analysis-status"
+import { AnalysisHistory } from "@/components/analysis-history"
+import { EvaluationEditor } from "@/components/evaluation-editor"
 import { api, type Content, type ReviewAction, type ReviewStatus, type ReviewEvent } from "@/lib/api"
 import { toKSTDateTime } from "@/lib/utils"
 
@@ -16,6 +19,7 @@ export function ReviewDialog({ content, onDone }: { content: Content; onDone: ()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [history, setHistory] = useState<ReviewEvent[] | null>(null)
+  const [jobMessage, setJobMessage] = useState("")
 
   const isRereview = content.review_status !== "PENDING"
 
@@ -33,7 +37,7 @@ export function ReviewDialog({ content, onDone }: { content: Content; onDone: ()
   }
 
   return (
-    <DialogContent>
+    <DialogContent className="max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>
           {isRereview ? "심사 재변경" : "운영자 판단"} — {content.content_id}
@@ -42,6 +46,14 @@ export function ReviewDialog({ content, onDone }: { content: Content; onDone: ()
       <div className="space-y-4">
         {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
         <p className="text-sm text-slate-300 leading-relaxed">{content.text}</p>
+        <AnalysisStatus content={content} />
+        <AnalysisHistory content={content} />
+        <button type="button" className="text-xs text-indigo-400" onClick={async () => {
+          try { const job = await api.reanalyze(content); setJobMessage(`재분석 작업 ${job.id} 접수됨. 작업 현황에서 상태를 확인하세요.`) }
+          catch { setJobMessage("재분석 접수에 실패했습니다.") }
+        }}>재분석 요청</button>
+        {jobMessage && <p role="status" className="text-xs text-slate-300">{jobMessage}</p>}
+        <EvaluationEditor content={content} />
         {content.explanation && (
           <div className="rounded-md bg-slate-900 p-3 text-xs text-slate-400 leading-relaxed">
             {content.explanation}

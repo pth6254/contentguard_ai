@@ -12,6 +12,7 @@ from models import Client, Content
 from schemas import AnalyzeRequest, ContentResponse, ContentStatusResponse
 from services.analysis_service import analyze_text
 from services.content_service import save_analysis
+from services.policy_service import load_policy
 from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def analyze(
     client_id = client.id if client else None
     if db.query(Content).filter(Content.content_id == body.content_id, Content.client_id == client_id).first():
         raise HTTPException(status_code=400, detail=f"content_id '{body.content_id}' 는 이미 존재합니다.")
-    analysis = analyze_text(body.text)
+    analysis = analyze_text(body.text, policy=load_policy(db, client_id))
     try:
         return save_analysis(db=db, content_id=body.content_id, client_id=client_id, **analysis)
     except IntegrityError:

@@ -3,12 +3,13 @@ import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { Sidebar } from "@/components/sidebar"
 import { isLoggedIn, getRole } from "@/lib/auth"
+import { api } from "@/lib/api"
 
 // 인증 없이 접근 가능한 페이지
 const PUBLIC_PATHS = ["/login", "/signup"]
 
 // 클라이언트 역할만 접근하는 페이지 (사이드바 없이 단순 레이아웃)
-const CLIENT_PATHS = ["/my-keys"]
+const CLIENT_PATHS = ["/my-keys", "/my-dashboard", "/my-batches"]
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -33,7 +34,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // 클라이언트가 운영자 전용 페이지 접근 시 → 내 키 관리로
     if (role === "client" && !isClientPage) {
-      router.replace("/my-keys")
+      router.replace("/my-dashboard")
       return
     }
 
@@ -58,6 +59,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (isClientPage) {
     return (
       <main className="min-h-screen p-8 max-w-3xl mx-auto">
+        <nav className="mb-6 flex gap-4 text-sm text-indigo-300"><a href="/my-dashboard">내 대시보드</a><a href="/my-keys">API 키</a><a href="/my-batches">대량 분석</a><button onClick={() => api.logout()} className="ml-auto">로그아웃</button></nav>
         {children}
       </main>
     )

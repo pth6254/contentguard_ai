@@ -6,73 +6,59 @@ from sqlalchemy.orm import Session
 
 from auth import require_operator
 from database import get_db
-from models import Content
+from models import Content, EvaluationLabel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["active-learning"], dependencies=[Depends(require_operator)])
 
-# 운영자 결정 → 위험 등급 / 재학습 점수 매핑
-ACTION_TO_LEVEL = {
-    "approve": "LOW",
-    "monitor": "MEDIUM",
-    "hold":    "HIGH",
-    "remove":  "CRITICAL",
-}
-
-ACTION_TO_SCORE = {
-    "approve": 0.10,
-    "monitor": 0.44,
-    "hold":    0.72,
-    "remove":  0.92,
-}
-
-
 class ActiveLearningCandidate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
+    content_record_id: int
+    client_id: int | None
     content_id: str
     text: str
     model_risk_level: str
     model_risk_score: float
-    operator_action: str
-    operator_level: str
-    suggested_score: float
+    operator_action: str | None
+    expected_level: str
+    label_category: str | None
+    operator_level: str | None
+    suggested_score: float | None
     disagreement: bool
 
 
 @router.get("/active-learning/candidates", response_model=list[ActiveLearningCandidate])
 def get_candidates(
     disagreement_only: bool = Query(True, description="모델-운영자 불일치 건만 반환"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """
-    운영자가 심사를 완료한 콘텐츠 중 재학습 후보를 반환한다.
-    disagreement_only=True(기본)이면 모델 예측과 운영자 판단이 다른 건만 반환한다.
-    """
-    records = (
-        db.query(Content)
-        .filter(Content.review_action.isnot(None))
-        .order_by(Content.reviewed_at.desc())
-        .all()
-    )
+    """Explicitly labeled examples only; moderation action is never ground truth."""
+    query = db.query(Content, EvaluationLabel).join(EvaluationLabel, EvaluationLabel.content_record_id == Content.id)
+    if disagreement_only:
+        query = query.filter(Content.risk_level != EvaluationLabel.expected_level)
+    records = query.order_by(EvaluationLabel.updated_at.desc(), Content.id.desc()).offset(offset).limit(limit).all()
 
     candidates = []
-    for r in records:
-        operator_level = ACTION_TO_LEVEL.get(r.review_action, "")
+    for r, label in records:
+        operator_level = label.expected_level
         disagreement = operator_level != r.risk_level
 
-        if disagreement_only and not disagreement:
-            continue
-
         candidates.append(ActiveLearningCandidate(
+            content_record_id=r.id,
+            client_id=r.client_id,
             content_id=r.content_id,
             text=r.text,
             model_risk_level=r.risk_level,
             model_risk_score=r.risk_score,
             operator_action=r.review_action,
+            expected_level=label.expected_level,
+            label_category=label.category,
             operator_level=operator_level,
-            suggested_score=ACTION_TO_SCORE[r.review_action],
+            suggested_score=None,
             disagreement=disagreement,
         ))
 

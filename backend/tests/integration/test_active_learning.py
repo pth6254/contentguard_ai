@@ -1,4 +1,4 @@
-from tests.conftest import OPERATOR_SECRET
+﻿from tests.conftest import OPERATOR_SECRET
 
 
 class TestActiveLearningAuth:
@@ -34,49 +34,49 @@ class TestActiveLearningEndpoint:
         assert response.json() == []
 
     def test_disagreement_included(self, analyzed_content, client):
-        # 모델: CRITICAL, 운영자: approve → operator_level=LOW → 불일치
         client.post("/api/reviews/TEST001", json={"action": "approve"})
+        assert client.get("/api/active-learning/candidates").json() == []
+        client.put(f"/api/evaluations/labels/{analyzed_content['id']}", json={"expected_level": "LOW", "category": "spam"})
         response = client.get("/api/active-learning/candidates")
         assert response.status_code == 200
         candidates = response.json()
         assert len(candidates) == 1
         assert candidates[0]["content_id"] == "TEST001"
+        assert candidates[0]["content_record_id"] == analyzed_content["id"]
+        assert candidates[0]["expected_level"] == "LOW"
         assert candidates[0]["disagreement"] is True
 
     def test_disagreement_candidate_fields(self, analyzed_content, client):
         client.post("/api/reviews/TEST001", json={"action": "approve"})
+        client.put(f"/api/evaluations/labels/{analyzed_content['id']}", json={"expected_level": "LOW"})
         candidate = client.get("/api/active-learning/candidates").json()[0]
         assert candidate["model_risk_level"] == "CRITICAL"
         assert candidate["operator_level"] == "LOW"
         assert candidate["operator_action"] == "approve"
-        assert candidate["suggested_score"] == 0.10
+        assert candidate["suggested_score"] is None
 
     def test_agreement_excluded_when_disagreement_only(self, analyzed_content, client):
-        # 모델: CRITICAL, 운영자: remove → operator_level=CRITICAL → 일치 → 제외
         client.post("/api/reviews/TEST001", json={"action": "remove"})
+        client.put(f"/api/evaluations/labels/{analyzed_content['id']}", json={"expected_level": "CRITICAL"})
         response = client.get("/api/active-learning/candidates?disagreement_only=true")
         assert response.status_code == 200
         assert response.json() == []
 
     def test_agreement_included_when_disagreement_only_false(self, analyzed_content, client):
-        # 모델: CRITICAL, 운영자: remove → 일치지만 disagreement_only=false 이므로 포함
         client.post("/api/reviews/TEST001", json={"action": "remove"})
+        client.put(f"/api/evaluations/labels/{analyzed_content['id']}", json={"expected_level": "CRITICAL"})
         response = client.get("/api/active-learning/candidates?disagreement_only=false")
         assert response.status_code == 200
         candidates = response.json()
         assert len(candidates) == 1
         assert candidates[0]["disagreement"] is False
 
-    def test_suggested_scores_per_action(self, analyzed_content, client):
-        expected = {
-            "approve": 0.10,
-            "monitor": 0.44,
-            "hold": 0.72,
-            "remove": 0.92,
-        }
-        for action, score in expected.items():
+    def test_enforcement_action_does_not_change_label(self, analyzed_content, client):
+        client.put(f"/api/evaluations/labels/{analyzed_content['id']}", json={"expected_level": "HIGH"})
+        for action in ("approve", "monitor", "hold", "remove"):
             client.post("/api/reviews/TEST001", json={"action": action})
             candidates = client.get(
                 "/api/active-learning/candidates?disagreement_only=false"
             ).json()
-            assert candidates[0]["suggested_score"] == score
+            assert candidates[0]["operator_level"] == "HIGH"
+            assert candidates[0]["suggested_score"] is None

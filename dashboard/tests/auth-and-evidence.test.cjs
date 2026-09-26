@@ -74,3 +74,23 @@ test('old mismatched evidence does not highlight unrelated text', () => {
   ] }))
   assert.ok(!html.includes('title="threat"'))
 })
+
+test('fallback and re-review are visible together', () => {
+  const { AnalysisStatus } = load('components/analysis-status.tsx')
+  const html = renderToStaticMarkup(React.createElement(AnalysisStatus, { content: {
+    needs_re_review: true, explanation_json: { analysis_status: 'fallback' },
+  } }))
+  assert.ok(html.includes('임시 분석'))
+  assert.ok(html.includes('재심사 필요'))
+})
+
+test('bulk review reports partial failure and keeps failed item', async () => {
+  const { runBulkReview } = load('lib/bulk-review.ts')
+  const items = [{ id: 1, content_id: 'one' }, { id: 2, content_id: 'two' }]
+  const result = await runBulkReview(items, 'approve', async item => {
+    if (item.id === 2) throw new Error('409 conflict')
+  })
+  assert.equal(result.succeeded, 1)
+  assert.equal(result.conflicts, 1)
+  assert.equal(result.failures[0].item.id, 2)
+})

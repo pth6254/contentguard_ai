@@ -12,6 +12,8 @@ import { Pagination } from "@/components/ui/pagination"
 import { ReviewDialog } from "@/components/review-dialog"
 import { CategoryScoreBars } from "@/components/category-score-bars"
 import { HighlightedText } from "@/components/highlighted-text"
+import { AnalysisStatus } from "@/components/analysis-status"
+import { runBulkReview } from "@/lib/bulk-review"
 
 const LEVEL_COUNT_COLOR: Record<RiskLevel, string> = {
   LOW: "text-emerald-400", MEDIUM: "text-yellow-400", HIGH: "text-orange-400", CRITICAL: "text-red-400",
@@ -74,6 +76,8 @@ export default function QueuePage() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [bulkResult, setBulkResult] = useState("")
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const allSelected = items.length > 0 && items.every(i => selected.has(i.id))
@@ -100,7 +104,8 @@ export default function QueuePage() {
       limit: pageSize,
       offset: page * pageSize,
     })
-      .then(({ items, total }) => { setItems(items); setTotal(total) })
+      .then(({ items, total }) => { setItems(items); setTotal(total); setError("") })
+      .catch(() => setError("심사 목록을 불러오지 못했습니다. 다시 시도해 주세요."))
       .finally(() => setLoading(false))
   }
 
@@ -128,13 +133,16 @@ export default function QueuePage() {
   }
 
   const bulkReview = async (action: ReviewAction) => {
-    if (!confirm(`선택한 ${selected.size}건을 일괄 처리하시겠습니까?`)) return
+    if (bulkLoading) return
+    const targets = items.filter(item => selected.has(item.id))
+    if (!targets.length || !confirm(`선택한 ${targets.length}건을 일괄 처리하시겠습니까?`)) return
     setBulkLoading(true)
+    setBulkResult("")
     try {
-      await Promise.all(items.filter(item => selected.has(item.id)).map(item => api.review(item, action)))
-      setSelected(new Set())
-      if (items.length <= selected.size && page > 0) setPage(p => p - 1)
-      else load()
+      const { failures, succeeded, conflicts } = await runBulkReview(targets, action, api.review)
+      setSelected(new Set(failures.map(({ item }) => item.id)))
+      setBulkResult(`${succeeded}건 완료, ${failures.length}건 실패${conflicts ? ` (동시 변경 ${conflicts}건)` : ""}.${failures.length ? ` 실패 ID: ${failures.map(({ item }) => item.content_id).join(", ")}. 실패한 항목을 다시 확인하세요.` : ""}`)
+      load()
     } finally {
       setBulkLoading(false)
     }
@@ -161,13 +169,16 @@ export default function QueuePage() {
 
       {/* 긴급도 요약 */}
       <div className="flex items-center gap-6">
-        <span className="text-slate-400 text-sm">대기 {items.length}건</span>
+        <span className="text-slate-400 text-sm">전체 대기 {total}건 · 현재 페이지 {items.length}건</span>
         {counts.map(({ level, count }) => (
           <span key={level} className={`text-sm font-semibold ${LEVEL_COUNT_COLOR[level]}`}>
             {level} {count}
           </span>
         ))}
       </div>
+
+      {error && <p role="alert" className="rounded border border-red-800 bg-red-950 p-3 text-sm text-red-300">{error} <button onClick={load} className="underline">재시도</button></p>}
+      {bulkResult && <p role="status" className="rounded border border-slate-600 bg-slate-800 p-3 text-sm text-slate-200">{bulkResult}</p>}
 
       {/* 검색 */}
       <div className="relative">
@@ -196,6 +207,7 @@ export default function QueuePage() {
             type="checkbox"
             checked={allSelected}
             onChange={toggleSelectAll}
+            disabled={bulkLoading}
             className="w-4 h-4 rounded accent-indigo-500 cursor-pointer"
           />
           전체
@@ -262,6 +274,7 @@ export default function QueuePage() {
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(item.id)}
+                      disabled={bulkLoading}
                       className="mt-1 w-4 h-4 rounded accent-indigo-500 cursor-pointer shrink-0"
                     />
 
@@ -269,6 +282,7 @@ export default function QueuePage() {
                       <div className="flex-1 min-w-0 space-y-2">
                         <div className="flex items-center gap-2">
                           <Badge variant={item.risk_level}>{item.risk_level}</Badge>
+                          <AnalysisStatus content={item} />
                           <span className="text-xs text-slate-500 font-mono">{item.content_id}</span>
                           <span className="text-xs text-slate-500">{toKSTDateTime(item.created_at)}</span>
                         </div>
@@ -347,7 +361,7 @@ export default function QueuePage() {
                         <p className="text-2xl font-bold text-slate-100">{item.risk_score.toFixed(2)}</p>
                         <Dialog>
                           <DialogTrigger asChild>
-                            <Button size="sm">심사하기</Button>
+                            <Button size="sm" disabled={bulkLoading}>심사하기</Button>
                           </DialogTrigger>
                           <ReviewDialog
                             content={item}

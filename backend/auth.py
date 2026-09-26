@@ -167,6 +167,10 @@ def get_client_or_operator(
                 ).first()
                 if op:
                     return None
+            if payload.get("role") == "client":
+                client = db.get(Client, int(payload["sub"]))
+                if client:
+                    return client
         except HTTPException:
             pass
 

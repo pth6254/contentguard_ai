@@ -69,6 +69,7 @@ class Content(Base):
 
     review_status = Column(String, nullable=False, default="PENDING")
     review_version = Column(Integer, nullable=False, default=0)
+    needs_re_review = Column(Boolean, nullable=False, default=False)
     review_action = Column(String, nullable=True)
     reviewer_comment = Column(Text, nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
@@ -131,3 +132,78 @@ class WebhookDelivery(Base):
     next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     last_error = Column(String, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
+
+
+class AnalysisRun(Base):
+    """One immutable result for each analysis or reanalysis."""
+    __tablename__ = "analysis_runs"
+    id = Column(Integer, primary_key=True)
+    content_record_id = Column(Integer, ForeignKey("contents.id"), nullable=False, index=True)
+    source = Column(String(32), nullable=False, default="api")
+    status = Column(String(16), nullable=False)
+    risk_score = Column(Float, nullable=False)
+    risk_level = Column(String(16), nullable=False)
+    provider = Column(String(32), nullable=True)
+    model = Column(String(100), nullable=True)
+    prompt_version = Column(String(32), nullable=False, default="v1")
+    policy_version = Column(String(32), nullable=False, default="v1")
+    latency_ms = Column(Integer, nullable=True)
+    category_scores = Column(JSON, nullable=True)
+    explanation_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EvaluationLabel(Base):
+    """Explicit ground truth, independent of the operator's enforcement action."""
+    __tablename__ = "evaluation_labels"
+    id = Column(Integer, primary_key=True)
+    content_record_id = Column(Integer, ForeignKey("contents.id"), nullable=False, unique=True, index=True)
+    expected_level = Column(String(16), nullable=False)
+    category = Column(String(40), nullable=True)
+    reason = Column(Text, nullable=True)
+    operator_id = Column(Integer, ForeignKey("operators.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AnalysisJob(Base):
+    """Durable analysis request; input is masked before being stored."""
+    __tablename__ = "analysis_jobs"
+    id = Column(String(32), primary_key=True, default=lambda: secrets.token_hex(16))
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
+    batch_id = Column(String(32), ForeignKey("batch_imports.id"), nullable=True, index=True)
+    submission_key = Column(String(255), nullable=True, unique=True)
+    content_id = Column(String(200), nullable=False)
+    content_record_id = Column(Integer, ForeignKey("contents.id"), nullable=True)
+    text = Column(Text, nullable=False)
+    pii_types = Column(JSON, nullable=False, default=list)
+    kind = Column(String(16), nullable=False)
+    status = Column(String(16), nullable=False, default="PENDING", index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
+    last_error = Column(String(100), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class ClientPolicy(Base):
+    __tablename__ = "client_policies"
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False, unique=True)
+    version = Column(Integer, nullable=False, default=1)
+    category_min_levels = Column(JSON, nullable=False, default=dict)
+    review_categories = Column(JSON, nullable=False, default=list)
+    trigger_score = Column(Integer, nullable=False, default=60)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class BatchImport(Base):
+    __tablename__ = "batch_imports"
+    id = Column(String(32), primary_key=True, default=lambda: secrets.token_hex(16))
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
+    source_format = Column(String(8), nullable=False)
+    rows_total = Column(Integer, nullable=False)
+    accepted = Column(Integer, nullable=False)
+    skipped = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

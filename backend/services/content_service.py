@@ -3,9 +3,23 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Content, ModelPrediction
+from models import AnalysisRun, Content, ModelPrediction
 
 logger = logging.getLogger(__name__)
+
+
+def add_analysis_run(db: Session, record: Content, analysis: dict, source: str) -> None:
+    details = analysis.get("explanation_json") or {}
+    metadata = details.get("analysis_metadata") or {}
+    db.add(AnalysisRun(content_record_id=record.id, source=source,
+                       status=details.get("analysis_status", "legacy"),
+                       risk_score=analysis["final"]["risk_score"],
+                       risk_level=analysis["final"]["risk_level"],
+                       provider=metadata.get("provider"), model=metadata.get("model"),
+                       prompt_version=metadata.get("prompt_version", "legacy"),
+                       policy_version=metadata.get("policy_version", "legacy"),
+                       latency_ms=metadata.get("latency_ms"),
+                       category_scores=analysis.get("category_scores"), explanation_json=details))
 
 
 def save_analysis(
@@ -23,6 +37,7 @@ def save_analysis(
     explanation_json: Optional[dict] = None,
     raw_model_score: Optional[float] = None,
     calibrated_score: Optional[float] = None,
+    source: str = "api",
 ) -> Content:
     """예측 결과를 DB에 저장한다. 예측 실행과 LLM 호출은 호출자 책임."""
 
@@ -46,6 +61,8 @@ def save_analysis(
     try:
         db.add(record)
         db.flush()
+        add_analysis_run(db, record, {"final": final, "explanation_json": explanation_json,
+                                      "category_scores": category_scores}, source)
         db.bulk_insert_mappings(ModelPrediction, [
             {
                 "content_id": content_id,
