@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { type RiskLevel } from "@/lib/api"
 import { getToken, authenticatedFetch } from "@/lib/auth"
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8003"
 
 type Tab = "api" | "crawl"
 

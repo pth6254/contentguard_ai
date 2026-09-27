@@ -3,7 +3,7 @@
 실행: python scripts/seed_data.py  (백엔드가 실행 중이어야 합니다)
 
 옵션:
-  --url   백엔드 주소 (기본: http://localhost:8000)
+  --url   백엔드 주소 (기본: http://localhost:8003)
   --delay 요청 간격(초) (기본: 0.3)
 """
 import argparse
@@ -54,7 +54,7 @@ def analyze(base_url: str, content_id: str, text: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--url",   default="http://localhost:8000")
+    parser.add_argument("--url",   default="http://localhost:8003")
     parser.add_argument("--delay", type=float, default=0.3)
     args = parser.parse_args()
 

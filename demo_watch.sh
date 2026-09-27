@@ -53,7 +53,7 @@ echo "  감시 이벤트:"
 echo "    [분석완료] demo_submit.sh 제출 후 AI 분석 결과"
 echo "    [심사완료] 대시보드 심사 후 웹훅 수신 결과"
 echo ""
-echo "  대시보드: http://localhost:3000/queue"
+echo "  대시보드: http://localhost:3003/queue"
 echo ""
 
 TICK=0
@@ -83,7 +83,7 @@ except:
       echo "────────────────────────────────────────"
       echo "$DETAIL" | pretty_kst
       echo ""
-      echo "  → 대시보드에서 심사하세요: http://localhost:3000/queue"
+      echo "  → 대시보드에서 심사하세요: http://localhost:3003/queue"
       echo ""
     fi
 

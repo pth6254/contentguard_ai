@@ -92,7 +92,7 @@ def analyze(base_url: str, content_id: str, text: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="크롤링 → ContentGuard 분석 시연 스크립트")
     parser.add_argument("--url",          required=True,              help="크롤링할 페이지 URL")
-    parser.add_argument("--contentguard", default="http://localhost:8000", help="ContentGuard API 주소")
+    parser.add_argument("--contentguard", default="http://localhost:8003", help="ContentGuard API 주소")
     parser.add_argument("--max",          type=int,   default=20,     help="최대 추출 건수 (기본 20)")
     parser.add_argument("--delay",        type=float, default=0.5,    help="요청 간격 초 (기본 0.5)")
     args = parser.parse_args()
@@ -152,7 +152,7 @@ def main():
 
     print(f"\n    {'─'*60}")
     print(f"    완료: 성공 {ok}건 / 실패 {err}건")
-    print(f"    대시보드: {args.contentguard.replace('8000', '3000')}\n")
+    print("    대시보드: http://localhost:3003\n")
 
 
 if __name__ == "__main__":

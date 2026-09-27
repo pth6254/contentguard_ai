@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003"
 
 const nextConfig = {
   output: "standalone",

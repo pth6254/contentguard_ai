@@ -9,13 +9,13 @@
 #
 # 사용 흐름:
 #   1. bash demo.sh          → 텍스트 제출, AI 분석 결과 확인
-#   2. 대시보드에서 심사      → http://localhost:3000/queue
+#   2. 대시보드에서 심사      → http://localhost:3003/queue
 #   3. bash demo_watch.sh    → 웹훅 수신 + 데모 DB 반영 결과 자동 표시
 
 set -e
 source .env
 
-BASE_URL="http://localhost:8000"
+BASE_URL="http://localhost:8003"
 RECEIVER_URL="http://localhost:9000"
 
 _KST_PY=$(mktemp /tmp/pretty_kst_XXXXXX.py)
@@ -99,7 +99,7 @@ while true; do
 
   # 2. 심사 안내
   echo "[2/2] 대시보드에서 '$CONTENT_ID' 콘텐츠를 심사하세요."
-  echo "      http://localhost:3000/queue"
+  echo "      http://localhost:3003/queue"
   echo ""
   echo "      심사 완료 시 웹훅이 자동으로 데모 DB에 반영됩니다."
   echo "      결과 확인: bash demo_watch.sh"

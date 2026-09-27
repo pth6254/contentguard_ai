@@ -40,9 +40,9 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d --build
 ```
 
-- 대시보드: 기본 http://localhost:3000 (현재 로컬 배포는 http://localhost:3003)
+- 대시보드: http://localhost:3003
 - `DASHBOARD_PORT`로 대시보드 포트를 변경할 수 있습니다. 변경한 주소를 `ALLOWED_ORIGINS`에도 추가하세요.
-- API 문서: http://localhost:8000/docs
+- API 문서: http://localhost:8003/docs
 - DB: 로컬 머신의 `127.0.0.1:5434`
 - 백엔드 시작 명령은 `alembic upgrade head` 이후 서버를 실행합니다.
 - `webhook-worker`는 백엔드 준비 완료 후 실행되어 미전송 건을 처리합니다.

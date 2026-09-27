@@ -33,7 +33,7 @@ class Settings:
 
     ALLOWED_ORIGINS: list[str] = [
         o.strip()
-        for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3003").split(",")
         if o.strip()
     ]
 
