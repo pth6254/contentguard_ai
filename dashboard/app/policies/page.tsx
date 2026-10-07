@@ -55,7 +55,7 @@ export default function PoliciesPage() {
     </div>}
     {message && <p role="status" className="text-sm text-slate-300">{message}</p>}
     {preview && <div className="space-y-2 rounded border border-slate-700 bg-slate-800 p-4 text-sm text-slate-300">
-      <p>최근 {preview.sampled}건 중 {preview.changed}건의 예상 결과가 달라집니다. {preview.notice}</p>
+      <p>최근 {preview.sampled}건 중 {preview.changed}건의 예상 결과가 달라집니다. 기준 결과가 없어 제외된 항목 {preview.skipped}건. {preview.notice}</p>
       {preview.changes.map(item => <p key={item.record_id}>{item.content_id}: {item.before} → {item.after}{item.review_required ? " · 직접 검토" : ""}</p>)}
     </div>}
   </div>

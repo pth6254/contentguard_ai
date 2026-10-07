@@ -82,7 +82,8 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://backend:8000
+        API_INTERNAL_URL: http://backend:8000
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8003}
     container_name: contentguard-dashboard
     ports:
       - "${DASHBOARD_PORT:-3003}:3000"

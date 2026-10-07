@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { api, type Content, type EvaluationSummary, type RiskLevel } from "@/lib/api"
 import { EvaluationEditor } from "@/components/evaluation-editor"
 import { AnalysisStatus } from "@/components/analysis-status"
+import { EvaluationReports } from "@/components/evaluation-reports"
 
 const LEVELS: RiskLevel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 const percent = (value: number | null) => value == null ? "자료 없음" : `${(value * 100).toFixed(1)}%`
@@ -21,7 +22,8 @@ export default function EvaluationPage() {
 
   return <div className="space-y-5">
     <h1 className="text-2xl font-bold text-slate-100">AI 품질 평가</h1>
-    <p className="text-sm text-slate-400">운영자의 삭제·승인 조치와 별도로 정답을 기록합니다. 정확도는 정상 완료된 분석과 명시적으로 등록한 정답만 비교합니다.</p>
+    <EvaluationReports />
+    <p className="text-sm text-slate-400">아래 현황은 현재 정답과 최신 분석 기준이며 재분석에 따라 달라집니다. 과거 지표를 보존하려면 위에서 평가 보고서를 저장하세요.</p>
     {error && <p role="alert" className="text-red-400">{error} <button className="underline" onClick={load}>재시도</button></p>}
     {summary && <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

@@ -61,6 +61,7 @@ export interface Content {
   id: number
   client_id: number | null
   review_version: number
+  analysis_version: number
   needs_re_review: boolean
   content_id: string
   text: string
@@ -131,10 +132,13 @@ export interface Stats {
 
 export interface AnalysisJob {
   id: string
+  client_id: number | null
+  batch_id: string | null
+  cancel_requested: boolean
   kind: "new" | "reanalysis"
   content_id: string
   content_record_id: number | null
-  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED"
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED" | "DEGRADED"
   attempts: number
   last_error: string | null
   created_at: string
@@ -152,6 +156,7 @@ export interface CustomerPolicy {
 
 export interface PolicyPreview {
   sampled: number
+  skipped: number
   changed: number
   changes: { record_id: number; content_id: string; before: RiskLevel; after: RiskLevel; review_required: boolean }[]
   notice: string
@@ -160,6 +165,7 @@ export interface PolicyPreview {
 export interface ClientDashboard {
   client: { id: number; name: string }
   total: number
+  re_review_required: number
   by_status: Record<string, number>
   jobs: Record<string, number>
   webhooks: Record<string, number>
@@ -242,6 +248,21 @@ export interface EvaluationSummary {
   by_category: Record<string, { total: number; correct: number }>
 }
 
+export interface EvaluationDataset { id: number; name: string; size: number; created_at: string }
+export interface EvaluationReport {
+  id: number; dataset_id: number; name: string; filters: Record<string, string>
+  run_ids: number[]; metrics: EvaluationSummary; created_at: string
+}
+export interface Operations {
+  workers: Record<string, string>; jobs: Record<string, number>; alerts: string[]
+  overdue: number; expired_leases: number; webhook_failures: number; failure_rate_24h: number | null
+}
+export interface JobFilters { offset?: number; limit?: number; status?: string; search?: string; client_id?: string; batch_id?: string }
+
+function jobParams(filters: JobFilters): Record<string, string> {
+  return Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, String(value)]))
+}
+
 export interface ReviewEvent {
   id: number
   version: number
@@ -293,6 +314,7 @@ export const api = {
   getMyDashboard: () => get<ClientDashboard>("/auth/dashboard"),
   getMyContents: (offset = 0, search = "") => getPaginated<Content>("/auth/contents", { limit: "20", offset: String(offset), search }),
   getMyWebhooks: () => get<ClientWebhook[]>("/auth/webhooks"),
+  retryMyContent: (recordId: number) => post<AnalysisJob>(`/auth/contents/${recordId}/retry`, {}),
   getClients: () => get<{ id: number; name: string }[]>("/admin/clients"),
   getPolicy: (clientId: number) => get<CustomerPolicy>(`/api/policies/${clientId}`),
   savePolicy: async (clientId: number, body: Pick<CustomerPolicy, "category_min_levels" | "review_categories" | "trigger_score"> & { expected_version: number }): Promise<CustomerPolicy> => {
@@ -314,6 +336,14 @@ export const api = {
     return response.json()
   },
   listBatches: () => get<BatchImport[]>("/api/batches"),
+  getBatches: (offset = 0) => getPaginated<BatchImport>("/api/batches", { offset: String(offset), limit: "20" }),
+  downloadBatchErrors: async (id: string) => {
+    const response = await authenticatedFetch(`/api/batches/${encodeURIComponent(id)}/errors.csv`, { headers: authHeaders() })
+    if (!response.ok) throw new Error("오류 내역을 다운로드하지 못했습니다.")
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement("a"); link.href = url; link.download = `batch-${id}-errors.csv`
+    document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
   createMyKey: async (name: string): Promise<ApiKeyCreated> => {
     const res = await authenticatedFetch("/auth/keys", {
       method: "POST",
@@ -349,11 +379,19 @@ export const api = {
   getPredictions: (id: string, recordId: number) => get<ModelPrediction[]>(`/api/contents/${encodeURIComponent(id)}/predictions`, { record_id: String(recordId) }),
   getAnalysisRuns: (content: Content) => get<AnalysisRun[]>(`/api/contents/${encodeURIComponent(content.content_id)}/analyses`, { record_id: String(content.id) }),
   getEvaluationSummary: () => get<EvaluationSummary>("/api/evaluations/summary"),
+  getEvaluationDatasets: () => get<EvaluationDataset[]>("/api/evaluations/datasets"),
+  freezeEvaluationDataset: (name: string) => post<EvaluationDataset>("/api/evaluations/datasets", { name }),
+  getEvaluationReports: (datasetId: number) => get<EvaluationReport[]>(`/api/evaluations/datasets/${datasetId}/reports`),
+  freezeEvaluationReport: (datasetId: number, body: { name: string; model?: string; provider?: string; prompt_version?: string; policy_version?: string }) =>
+    post<EvaluationReport>(`/api/evaluations/datasets/${datasetId}/reports`, body),
+  getOperations: () => get<Operations>("/api/operations"),
   getEvaluationLabel: (recordId: number) => get<EvaluationLabel>(`/api/evaluations/labels/${recordId}`),
   listJobs: () => get<AnalysisJob[]>("/api/jobs"),
+  getJobs: (filters: JobFilters = {}) => getPaginated<AnalysisJob>("/api/jobs", jobParams(filters)),
   submitJob: (content_id: string, text: string) => post<AnalysisJob>("/api/jobs/analyze", { content_id, text }),
   reanalyze: (content: Content) => post<AnalysisJob>(`/api/contents/${encodeURIComponent(content.content_id)}/reanalyze?record_id=${content.id}`, {}),
   retryJob: (id: string) => post<AnalysisJob>(`/api/jobs/${encodeURIComponent(id)}/retry`, {}),
+  retryJobs: (job_ids: string[]) => post<{ accepted: string[]; errors: { id: string; reason: string }[] }>("/api/jobs/retry", { job_ids }),
   cancelJob: (id: string) => post<AnalysisJob>(`/api/jobs/${encodeURIComponent(id)}/cancel`, {}),
   putEvaluationLabel: async (recordId: number, body: { expected_level: RiskLevel; category: string | null; reason: string | null }): Promise<EvaluationLabel> => {
     const response = await authenticatedFetch(`/api/evaluations/labels/${recordId}`, {
@@ -365,7 +403,7 @@ export const api = {
   analyze: (content_id: string, text: string) =>
     post<Content>("/api/analyze", { content_id, text }),
   review: (content: Content, action: ReviewAction, comment?: string) =>
-    post<Content>(`/api/reviews/${encodeURIComponent(content.content_id)}?record_id=${content.id}`, { action, comment: comment || null, expected_version: content.review_version }),
+    post<Content>(`/api/reviews/${encodeURIComponent(content.content_id)}?record_id=${content.id}`, { action, comment: comment || null, expected_version: content.review_version, expected_analysis_version: content.analysis_version }),
   reviewHistory: (content: Content) => get<ReviewEvent[]>(`/api/reviews/${encodeURIComponent(content.content_id)}/history`, { record_id: String(content.id) }),
   deleteContent: async (content: Content): Promise<void> => {
     const res = await authenticatedFetch(`/api/contents/${encodeURIComponent(content.content_id)}?record_id=${content.id}`, {

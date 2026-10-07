@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { AnalysisStatus } from "@/components/analysis-status"
-import { api, type Content, type RiskLevel, type ReviewStatus, type Stats } from "@/lib/api"
+import { api, type Content, type RiskLevel, type ReviewStatus, type Stats, type Operations } from "@/lib/api"
 
 const REFRESH_INTERVAL = 30_000
 
@@ -20,6 +20,7 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 export default function DashboardPage() {
   const [recent, setRecent]       = useState<Content[]>([])
   const [stats, setStats]         = useState<Stats | null>(null)
+  const [operations, setOperations] = useState<Operations | null>(null)
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
@@ -31,8 +32,10 @@ export default function DashboardPage() {
     Promise.all([
       api.getStats(),
       api.getContents({ limit: 5 }),
-    ]).then(([s, recentR]) => {
+      api.getOperations(),
+    ]).then(([s, recentR, operationsR]) => {
       setStats(s)
+      setOperations(operationsR)
       setRecent(recentR.items)
     }).catch((e: unknown) => {
       setError(e instanceof Error ? e.message : String(e))
@@ -76,6 +79,12 @@ export default function DashboardPage() {
           자동 새로고침
         </button>
       </div>
+
+      {operations && <section className="space-y-2 rounded border border-slate-700 bg-slate-800 p-4 text-sm text-slate-300">
+        <h2 className="font-semibold text-slate-100">처리 상태</h2>
+        <p>분석 워커: {operations.workers.analysis === "ok" ? "정상" : "응답 없음"} · 웹훅 워커: {operations.workers.webhook === "ok" ? "정상" : "응답 없음"} · 최근 24시간 실패·임시 분석 비율: {operations.failure_rate_24h == null ? "자료 없음" : `${(operations.failure_rate_24h * 100).toFixed(1)}%`}</p>
+        {operations.alerts.length ? <div role="status" className="text-amber-300">{operations.alerts.map(alert => <p key={alert}>{alert}</p>)}<a href="/jobs" className="underline">작업 확인</a></div> : <p className="text-emerald-400">확인이 필요한 작업 경고가 없습니다.</p>}
+      </section>}
 
       {/* 지표 카드 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">

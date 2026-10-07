@@ -1,9 +1,27 @@
 """A customer policy may escalate or require review; it never weakens global rules."""
 from models import ClientPolicy
 from services.decision_policy_service import get_recommended_action
+from services.decision_policy_service import classify_risk_level
 
 ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 FLOOR = {"LOW": 0.0, "MEDIUM": 0.3, "HIGH": 0.6, "CRITICAL": 0.85}
+
+
+def base_decision(record):
+    details = record.explanation_json or {}
+    if details.get("base_decision"):
+        return details["base_decision"]
+    # Recover older analyses only when both the model score and rules exist.
+    if record.calibrated_score is None or record.triggered_rules is None:
+        return None
+    score = record.calibrated_score
+    grade = classify_risk_level(score)
+    for rule in record.triggered_rules:
+        minimum = rule.get("min_grade")
+        if not rule.get("review_only") and minimum in ORDER and ORDER.index(minimum) > ORDER.index(grade):
+            grade = minimum
+    return {"risk_score": max(score, FLOOR[grade]), "risk_level": grade,
+            "review_required": details.get("analysis_status") != "completed" or any(r.get("review_only") for r in record.triggered_rules)}
 
 
 def load_policy(db, client_id: int | None) -> dict | None:

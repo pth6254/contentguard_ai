@@ -78,7 +78,7 @@ def get_analysis_history(content_id: str, record_id: Optional[int] = None, db: S
     record = find_content(db, content_id, record_id)
     runs = (db.query(AnalysisRun).filter(AnalysisRun.content_record_id == record.id)
             .order_by(AnalysisRun.id.desc()).limit(100).all())
-    return [{"id": run.id, "source": run.source, "status": run.status,
+    return [{"id": run.id, "analysis_version": run.analysis_version, "source": run.source, "status": run.status,
              "risk_score": run.risk_score, "risk_level": run.risk_level,
              "provider": run.provider, "model": run.model, "prompt_version": run.prompt_version,
              "policy_version": run.policy_version, "latency_ms": run.latency_ms,

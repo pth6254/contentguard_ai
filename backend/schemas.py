@@ -18,6 +18,7 @@ class AnalyzeRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     expected_version: Optional[int] = Field(None, ge=0)
+    expected_analysis_version: Optional[int] = Field(None, ge=0)
     action: Literal["approve", "remove", "hold", "monitor"] = Field(
         ..., example="approve"
     )
@@ -36,6 +37,7 @@ class ContentResponse(BaseModel):
     id: Optional[int] = None
     client_id: Optional[int] = None
     review_version: int = 0
+    analysis_version: int = 0
     needs_re_review: bool = False
     content_id: str
     text: str

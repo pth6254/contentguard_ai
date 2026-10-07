@@ -2,6 +2,7 @@
 import logging
 import time
 from database import SessionLocal
+from services.worker_health import worker_heartbeat
 from services.analysis_job_service import process_one
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 def main():
     logging.basicConfig(level=logging.INFO)
+    with worker_heartbeat(SessionLocal, 'analysis'):
+        run_loop()
+
+
+def run_loop():
     while True:
         try:
             with SessionLocal() as db:

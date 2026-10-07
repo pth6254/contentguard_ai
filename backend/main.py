@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from limiter import limiter
-from routers import active_learning, admin, analyze, batches, client_portal, contents, crawl, evaluations, jobs, policies, register, reviews
+from routers import active_learning, admin, analyze, batches, client_portal, contents, crawl, evaluations, jobs, operations, policies, register, reviews
 from routers import auth as auth_router
 
 logging.basicConfig(
@@ -45,6 +45,7 @@ app.include_router(reviews.router)
 app.include_router(active_learning.router)
 app.include_router(evaluations.router)
 app.include_router(jobs.router)
+app.include_router(operations.router)
 app.include_router(policies.router)
 app.include_router(crawl.router)
 app.include_router(admin.router)
@@ -92,13 +93,22 @@ def health_check():
         checks["db"] = "error"
 
     try:
-        client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL, timeout=3.0)
-        client.list()
-        checks["ollama"] = "ok"
+        if "ollama" in (settings.LLM_PROVIDER_EXPLAIN, settings.LLM_PROVIDER_EXTRACT):
+            client = ollama_lib.Client(host=settings.OLLAMA_BASE_URL, timeout=3.0)
+            client.list()
+            checks["ollama"] = "ok"
+        else:
+            checks["ollama"] = "not_required"
     except Exception as e:
         checks["ollama"] = "error"
 
-    overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    try:
+        from database import SessionLocal
+        with SessionLocal() as db:
+            checks.update({f"{kind}_worker": status for kind, status in operations.worker_status(db).items()})
+    except Exception:
+        checks.update(analysis_worker="unknown", webhook_worker="unknown")
+    overall = "ok" if all(v in ("ok", "not_required") for v in checks.values()) else "degraded"
     return {"status": overall, **checks}
 
 

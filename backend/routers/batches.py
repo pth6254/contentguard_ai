@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
+from xml.etree.ElementTree import ParseError
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -22,38 +25,61 @@ from services.rule_detector import mask_pii
 router = APIRouter(prefix="/api/batches", tags=["batch-imports"])
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 500
+MAX_COLUMNS = 50
+MAX_SCANNED_ROWS = 5000
+MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 
 
-async def _read_table(file: UploadFile) -> tuple[str, list[str], list[dict[str, str]]]:
+async def _read_table(file: UploadFile):
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in (".csv", ".xlsx"):
         raise HTTPException(status_code=422, detail="CSV 또는 XLSX 파일을 선택하세요.")
     payload = await file.read(MAX_FILE_BYTES + 1)
     if len(payload) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail="파일은 2MB 이하여야 합니다.")
+    return await run_in_threadpool(_parse_table, suffix, payload)
+
+
+def _parse_table(suffix, payload):
+    book = None
     try:
         if suffix == ".csv":
-            reader = csv.DictReader(io.StringIO(payload.decode("utf-8-sig"), newline=""))
-            headers = reader.fieldnames or []
-            rows = list(reader)
+            iterator = csv.reader(io.StringIO(payload.decode("utf-8-sig"), newline=""))
         else:
             from openpyxl import load_workbook
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                entries = archive.infolist()
+                if len(entries) > 1000 or sum(item.file_size for item in entries) > MAX_UNCOMPRESSED_BYTES:
+                    raise HTTPException(status_code=413, detail="XLSX 압축 해제 크기는 20MB 이하여야 합니다.")
             book = load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
-            try:
-                iterator = book.active.iter_rows(values_only=True)
-                headers = [str(value).strip() if value is not None else "" for value in next(iterator)]
-                rows = [dict(zip(headers, ["" if value is None else str(value) for value in values]))
-                        for values in iterator]
-            finally:
-                book.close()
-    except (UnicodeError, csv.Error, ValueError, StopIteration, OSError, KeyError, zipfile.BadZipFile) as exc:
+            if book.active is None:
+                raise ValueError("Missing worksheet")
+            if (book.active.max_column or 0) > MAX_COLUMNS or (book.active.max_row or 0) > MAX_SCANNED_ROWS:
+                raise HTTPException(status_code=413, detail="최대 50열·5,000개 물리 행까지 읽을 수 있습니다.")
+            iterator = book.active.iter_rows(values_only=True)
+        headers = [str(value).strip() if value is not None else "" for value in next(iterator)]
+        if not headers or any(not header for header in headers) or len(set(headers)) != len(headers):
+            raise HTTPException(status_code=422, detail="첫 행의 열 이름은 비어 있거나 중복될 수 없습니다.")
+        if len(headers) > MAX_COLUMNS or any(len(header) > 100 for header in headers):
+            raise HTTPException(status_code=413, detail="최대 50열이며 열 이름은 100자 이하여야 합니다.")
+        rows = []
+        for number, values in enumerate(iterator, 2):
+            if number > MAX_SCANNED_ROWS:
+                raise HTTPException(status_code=413, detail="빈 행을 포함해 최대 5,000행까지 읽을 수 있습니다.")
+            if not any(value is not None and str(value).strip() for value in values):
+                continue
+            if len(rows) >= MAX_ROWS:
+                raise HTTPException(status_code=413, detail="한 번에 최대 500행까지 접수할 수 있습니다.")
+            if len(values) > len(headers) or any(len(str(value or "")) > 8000 for value in values):
+                raise HTTPException(status_code=422, detail=f"{number}행의 열 개수 또는 셀 길이(최대 8,000자)를 확인하세요.")
+            row = dict(zip(headers, ["" if value is None else str(value) for value in values]))
+            rows.append((number, row))
+        return suffix[1:], headers, rows
+    except (UnicodeError, csv.Error, ValueError, StopIteration, OSError, KeyError, ParseError, zipfile.BadZipFile) as exc:
         raise HTTPException(status_code=422, detail="파일을 읽을 수 없습니다. UTF-8 CSV 또는 정상적인 XLSX를 확인하세요.") from exc
-    if not headers or any(not header for header in headers) or len(set(headers)) != len(headers):
-        raise HTTPException(status_code=422, detail="첫 행의 열 이름은 비어 있거나 중복될 수 없습니다.")
-    rows = [row for row in rows if any(str(value or "").strip() for value in row.values())]
-    if len(rows) > MAX_ROWS:
-        raise HTTPException(status_code=413, detail="한 번에 최대 500행까지 접수할 수 있습니다.")
-    return suffix[1:], headers, rows
+    finally:
+        if book:
+            book.close()
 
 
 @router.post("/preview")
@@ -63,7 +89,7 @@ async def preview(request: Request, file: UploadFile = File(...),
     source, headers, rows = await _read_table(file)
     return {"format": source, "columns": headers, "rows": len(rows),
             "sample": [{key: mask_pii(str(value or ""))[0][:100] for key, value in row.items() if key}
-                       for row in rows[:5]]}
+                       for _, row in rows[:5]]}
 
 
 @router.post("", status_code=202)
@@ -79,17 +105,15 @@ async def submit(request: Request, file: UploadFile = File(...),
     seen = set()
     candidates = []
     errors = []
-    for number, row in enumerate(rows, 2):
+    for number, row in rows:
         try:
             body = AnalyzeRequest(content_id=str(row.get(content_id_column) or "").strip(),
                                   text=str(row.get(text_column) or ""))
         except ValidationError:
-            if len(errors) < 25:
-                errors.append({"row": number, "reason": "콘텐츠 ID 또는 텍스트 형식이 올바르지 않습니다."})
+            errors.append({"row": number, "reason": "콘텐츠 ID 또는 텍스트 형식이 올바르지 않습니다."})
             continue
         if body.content_id in seen:
-            if len(errors) < 25:
-                errors.append({"row": number, "reason": "파일 안에서 콘텐츠 ID가 중복되었습니다."})
+            errors.append({"row": number, "reason": "파일 안에서 콘텐츠 ID가 중복되었습니다."})
             continue
         seen.add(body.content_id)
         masked, pii_types = mask_pii(body.text)
@@ -104,14 +128,13 @@ async def submit(request: Request, file: UploadFile = File(...),
     for number, content_id, masked, pii_types in candidates:
         key = f"client:{client_id if client_id is not None else 'operator'}:{content_id}"
         if content_id in existing_contents or key in existing_keys:
-            if len(errors) < 25:
-                errors.append({"row": number, "reason": "이미 접수되었거나 분석된 콘텐츠 ID입니다."})
+            errors.append({"row": number, "reason": "이미 접수되었거나 분석된 콘텐츠 ID입니다."})
         else:
             accepted.append((content_id, masked, pii_types, key))
-    if not accepted:
-        raise HTTPException(status_code=422, detail="접수 가능한 행이 없습니다. 열 선택과 중복 ID를 확인하세요.")
+    if not rows:
+        raise HTTPException(status_code=422, detail="파일에 접수할 행이 없습니다.")
     batch = BatchImport(id=secrets.token_hex(16), client_id=client_id, source_format=source,
-                        rows_total=len(rows), accepted=len(accepted), skipped=len(rows) - len(accepted))
+                        rows_total=len(rows), accepted=len(accepted), skipped=len(rows) - len(accepted), errors=errors)
     db.add(batch)
     db.flush()
     for content_id, masked, pii_types, key in accepted:
@@ -136,12 +159,13 @@ def _batch_result(db: Session, batch: BatchImport) -> dict:
 
 
 @router.get("")
-def list_batches(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db),
+def list_batches(response: Response, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), db: Session = Depends(get_db),
                  client: Client | None = Depends(get_client_or_operator)):
     query = db.query(BatchImport)
     if client:
         query = query.filter(BatchImport.client_id == client.id)
-    return [_batch_result(db, batch) for batch in query.order_by(BatchImport.created_at.desc()).limit(limit).all()]
+    response.headers["X-Total-Count"] = str(query.count())
+    return [_batch_result(db, batch) for batch in query.order_by(BatchImport.created_at.desc(), BatchImport.id.desc()).offset(offset).limit(limit).all()]
 
 
 @router.get("/{batch_id}")
@@ -151,3 +175,18 @@ def get_batch(batch_id: str, db: Session = Depends(get_db),
     if not batch or (client and batch.client_id != client.id):
         raise HTTPException(status_code=404, detail="접수 내역이 없습니다.")
     return _batch_result(db, batch)
+
+
+@router.get("/{batch_id}/errors.csv")
+def download_errors(batch_id: str, db: Session = Depends(get_db),
+                    client: Client | None = Depends(get_client_or_operator)):
+    batch = db.get(BatchImport, batch_id)
+    if not batch or (client and batch.client_id != client.id):
+        raise HTTPException(status_code=404, detail="접수 내역이 없습니다.")
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    writer.writerow(["row", "reason"])
+    for item in batch.errors or []:
+        writer.writerow([item["row"], item["reason"]])
+    return Response(stream.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="batch-{batch.id}-errors.csv"'})

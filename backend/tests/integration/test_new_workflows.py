@@ -34,7 +34,7 @@ def test_policy_version_preview_and_escalation(client, db_session):
     assert preview["changed"] == 1 and preview["changes"][0]["after"] == "CRITICAL"
 
 
-def test_customer_portal_is_tenant_scoped(unauth_client, mock_predict):
+def test_customer_portal_is_tenant_scoped(unauth_client, mock_predict, db_session):
     credentials = {"password": "test-password-123"}
     tokens = []
     for name in ("portal-first", "portal-second"):
@@ -55,6 +55,19 @@ def test_customer_portal_is_tenant_scoped(unauth_client, mock_predict):
         "content_id": "private-job", "text": "고객별로 구분해야 하는 문장"})
     assert queued.status_code == 202
     assert unauth_client.get(f"/api/jobs/{queued.json()['id']}", headers=headers[1]).status_code == 404
+    record_id = created.json()["id"]
+    assert unauth_client.get(f"/auth/contents/{record_id}", headers=headers[1]).status_code == 404
+    assert unauth_client.post(f"/auth/contents/{record_id}/retry", headers=headers[1]).status_code == 404
+    record = db_session.get(Content, record_id)
+    record.explanation_json = {**record.explanation_json, "analysis_status": "fallback"}
+    db_session.commit()
+    assert unauth_client.post(f"/auth/contents/{record_id}/retry", headers=headers[0]).status_code == 202
+    batch = unauth_client.post("/api/batches", headers=headers[0], files={"file": ("errors.csv", b"id,text\na,\n")},
+                               data={"content_id_column": "id", "text_column": "text"})
+    assert batch.status_code == 202
+    assert unauth_client.get(f"/api/batches/{batch.json()['id']}/errors.csv", headers=headers[1]).status_code == 404
+    denied = unauth_client.post("/api/jobs/retry", headers=headers[1], json={"job_ids": [queued.json()["id"]]}).json()
+    assert denied["accepted"] == [] and len(denied["errors"]) == 1
 
 
 def test_csv_batch_preview_queue_progress_and_masking(client, db_session, mock_predict):

@@ -6,7 +6,7 @@
 ## 구성
 
 - FastAPI / SQLAlchemy / PostgreSQL / Alembic 백엔드
-- Next.js 14 / React / TypeScript 대시보드
+- Next.js 16 / React 19 / TypeScript 대시보드 (Docker·CI: Node.js 24)
 - Ollama / OpenAI / Anthropic / Gemini / DeepSeek 분석·추출 공급자
 - Firecrawl 및 BeautifulSoup → Trafilatura → LLM 텍스트 추출
 - DB에 저장하는 심사 변경 이력과 웹훅 발송 큐, 별도 웹훅 worker
@@ -43,6 +43,7 @@ docker compose up -d --build
 - 대시보드: http://localhost:3003
 - `DASHBOARD_PORT`로 대시보드 포트를 변경할 수 있습니다. 변경한 주소를 `ALLOWED_ORIGINS`에도 추가하세요.
 - API 문서: http://localhost:8003/docs
+- `PUBLIC_API_URL`은 고객에게 표시하는 API 연동 주소입니다. 컨테이너 내부 프록시 주소는 별도 `API_INTERNAL_URL`을 사용합니다.
 - DB: 로컬 머신의 `127.0.0.1:5434`
 - 백엔드 시작 명령은 `alembic upgrade head` 이후 서버를 실행합니다.
 - `webhook-worker`는 백엔드 준비 완료 후 실행되어 미전송 건을 처리합니다.
@@ -75,7 +76,9 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 기존 DB 원문은 마이그레이션에서 자동 변경하지 않습니다. 과거 데이터의 마스킹·보관 기간은 별도로 정해야 합니다.
 
 긴 분석은 `POST /api/jobs/analyze`로 접수하고 `GET /api/jobs/{id}`로 상태를 조회할 수 있습니다.
-작업은 `PENDING → PROCESSING → COMPLETED` 또는 `FAILED/CANCELLED` 상태를 가지며 실패 작업은 재시도할 수 있습니다.
+작업은 `PENDING → PROCESSING → COMPLETED` 또는 `FAILED/CANCELLED/DEGRADED` 상태를 가집니다.
+LLM 임시 결과는 최대 3회 자동 재시도하고, 이후에는 `DEGRADED`로 표시해 수동 재시도를 제공합니다.
+180초 작업 점유를 30초마다 갱신하며, 실행 소유 토큰이 일치하는 워커만 결과를 저장합니다. 결과·분석 이력·작업 완료는 같은 트랜잭션입니다.
 작업 입력은 DB 저장 전에 개인정보 패턴을 마스킹합니다. 탐지한 개인정보 유형은 별도 저장하여 분석 규칙에 반영합니다.
 운영자 재분석은 기존 심사 결정을 덮어쓰지 않고 `needs_re_review`로 다시 심사해야 함을 표시합니다.
 
@@ -83,6 +86,9 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 운영자가 명시적으로 등록한 정답만 AI 평가에 사용하며, 승인·보류·삭제 조치를 정답 등급으로 변환하지 않습니다.
 평가 화면의 정확도·고위험 정밀도·재현율은 정상 완료된 분석과 등록된 정답의 비교입니다.
 임시 분석과 과거 상태 미기록 데이터는 수치에서 제외하고 제외 건수를 표시합니다.
+평가 화면에서 정답을 고정 데이터셋으로 저장하고 공급자·모델·프롬프트·정책 버전별 보고서를 생성할 수 있습니다.
+각 보고서는 선택한 분석 실행 ID와 지표를 보존하므로 이후 재분석·정답 변경의 영향을 받지 않습니다.
+현재 현황과 고정 보고서는 구분해서 표시하며, 버전 비교 시 평가 건수와 제외 건수도 확인해야 합니다.
 
 ## 인증과 콘텐츠 식별
 
@@ -111,12 +117,18 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 | `POST /api/contents/{content_id}/reanalyze?record_id=...` | 운영자 재분석 작업 접수 |
 | `POST /api/jobs/analyze`, `GET /api/jobs/{id}` | 비동기 분석 접수·상태 조회 |
 | `POST /api/jobs/{id}/retry`, `/cancel` | 실패 재시도·진행 작업 취소 |
+| `GET /api/jobs` | `limit`, `offset`, `status`, `search`, `client_id`, `batch_id` 필터와 `X-Total-Count` |
+| `POST /api/jobs/retry` | `{job_ids}` 최대 100개 선택 재시도, 항목별 실패 반환 |
 | `PUT /api/evaluations/labels/{record_id}`, `GET /api/evaluations/summary` | 정답 등록·품질 지표 |
+| `GET/POST /api/evaluations/datasets` | 고정 정답 데이터셋 목록·저장 (최대 10,000건) |
+| `GET/POST /api/evaluations/datasets/{id}/reports` | 분석 버전 조건별 평가 보고서 목록·저장 |
 | `GET/PUT /api/policies/{client_id}`, `POST /api/policies/{client_id}/preview` | 고객별 정책과 변경 예상 |
 | `POST /api/batches/preview`, `POST /api/batches`, `GET /api/batches` | CSV/XLSX 미리보기·대량 접수·현황 |
+| `GET /api/batches/{id}/errors.csv` | 원본 행 번호와 제외 사유 다운로드 |
 | `GET /auth/dashboard`, `/auth/contents`, `/auth/webhooks` | 고객 본인 데이터 현황 |
+| `GET /auth/contents/{record_id}`, `POST /auth/contents/{record_id}/retry` | 고객 본인 상세·임시 결과 재분석 |
 | `DELETE /api/contents/{content_id}?record_id=...` | 콘텐츠 삭제. 심사 변경 이력은 보존 |
-| `POST /api/reviews/{content_id}?record_id=...` | `{action, comment, expected_version}` 심사 |
+| `POST /api/reviews/{content_id}?record_id=...` | `{action, comment, expected_version, expected_analysis_version}` 심사 |
 | `GET /api/reviews/{content_id}/history?record_id=...` | 최근 심사 변경 이력 100건 |
 | `GET /api/active-learning/candidates` | 모델·운영자 판단 불일치 후보 |
 | `/admin/clients`, `/admin/clients/{id}/keys` | 고객·API 키 관리 |
@@ -125,16 +137,24 @@ Windows의 WSL 내부 Docker를 사용하는 경우, 실행 세션이 모두 종
 | `GET /admin/webhooks` | 최근 발송 상태 100건 |
 | `POST /admin/webhooks/{id}/retry` | 최종 실패한 발송 재예약 |
 | `GET /health`, `GET /ready` | 의존성 상태 및 DB 준비 상태 |
+| `GET /api/operations` | 운영자용 워커 생존 상태·장기 대기·실패 작업 경고 |
 
-심사 요청의 `expected_version`은 조회한 `review_version`을 전달합니다. 값이 오래되었으면 409로 거절합니다.
-기존 API 호환을 위해 생략은 허용하지만, 대시보드는 항상 버전을 전달합니다.
+심사 요청에 조회한 `review_version`을 `expected_version`으로, `analysis_version`을 `expected_analysis_version`으로 전달합니다.
+둘 중 하나가 오래되었으면 409로 거절합니다. 분석 버전을 생략한 기존 호출은 최초 분석에만 허용하며, 재분석된 결과에는 분석 버전이 필수입니다.
 고객에게 콘텐츠가 남아 있으면 고객 삭제는 409입니다. 콘텐츠가 없는 고객을 삭제하면 API 키도 함께 삭제됩니다.
 
 고객 정책은 카테고리 점수가 설정한 기준을 넘으면 최소 위험 등급을 올리거나 직접 검토를 요구합니다.
-기본 규칙을 낮추지 않으며, 변경은 이후 분석과 재분석부터 적용됩니다. 미리보기는 최근 100건에 대한 정책 규칙만 계산합니다.
+기본 규칙을 낮추지 않으며, 변경은 이후 분석과 재분석부터 적용됩니다. 미리보기는 최근 100건의 기본 규칙 적용 결과에 새 고객 정책을 적용합니다.
+과거 고객 정책에 의한 상향을 제거하는 경우도 비교하며, 기준 결과를 복원할 수 없는 과거 데이터는 제외 건수로 표시합니다.
 
-CSV/XLSX 업로드는 최대 2MB·500행입니다. 첫 행의 열 이름에서 콘텐츠 ID·텍스트 열을 선택하고 미리보기 후 접수합니다.
-파일 원본은 보관하지 않고 유효 행을 개별 분석 작업으로 저장합니다. 진행 현황은 대량 분석 화면과 `GET /api/batches`에서 조회할 수 있습니다.
+CSV/XLSX 업로드는 최대 2MB·500개 데이터 행·50열입니다. 빈 행을 포함한 물리 행은 5,000개, XLSX 압축 해제 크기는 20MB로 제한합니다.
+파싱 중 한도를 넘으면 즉시 중단합니다. 첫 행의 열 이름에서 콘텐츠 ID·텍스트 열을 선택하고 미리보기 후 접수합니다.
+파일 원본은 보관하지 않고 유효 행을 개별 분석 작업으로 저장합니다. 제외 사유와 원래 행 번호는 CSV로 내려받을 수 있습니다.
+유효 행이 0건이어도 오류 내역을 확인할 수 있도록 접수 기록을 남깁니다. 배치별 작업 필터·페이지 조회·실패 작업 선택 재시도를 지원합니다.
+고객은 `/my-dashboard`, `/my-batches`, `/my-jobs`에서 자신의 상세 결과·상태·작업을 확인합니다.
+
+워커는 15초마다 생존 신호를 기록합니다. 60초 이상 갱신되지 않으면 `/health`가 저하 상태를 표시하고,
+대시보드는 워커 중단·5분 이상 대기·점유 만료·실패/임시 결과·웹훅 실패를 안내합니다. 외부 알림 발송은 하지 않습니다.
 
 ## 웹훅 수신 계약
 

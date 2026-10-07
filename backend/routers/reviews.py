@@ -21,6 +21,10 @@ def review_content(content_id: str, request: ReviewRequest, record_id: int | Non
                    db: Session = Depends(get_db), operator: Operator | None = Depends(require_operator)):
     record = find_content(db, content_id, record_id, lock=True)
     version = record.review_version
+    if (request.expected_analysis_version is not None and request.expected_analysis_version != record.analysis_version) or (
+        request.expected_analysis_version is None and record.analysis_version > 1
+    ):
+        raise HTTPException(status_code=409, detail="분석 결과가 변경되었습니다. 새 결과를 확인한 후 다시 심사하세요.")
     if request.expected_version is not None and request.expected_version != version:
         raise HTTPException(status_code=409, detail="다른 운영자가 심사를 변경했습니다. 새로고침 후 다시 확인하세요.")
     now = datetime.utcnow()
@@ -31,7 +35,7 @@ def review_content(content_id: str, request: ReviewRequest, record_id: int | Non
                         previous_status=record.review_status, previous_action=record.review_action,
                         previous_comment=mask_pii(record.reviewer_comment)[0] if record.reviewer_comment else None,
                         action=request.action, status=ACTION_TO_STATUS[request.action], comment=comment,
-                        version=version + 1, created_at=now)
+                        version=version + 1, analysis_version=record.analysis_version, created_at=now)
     changed = db.query(Content).filter(Content.id == record.id, Content.review_version == version).update({
         Content.review_action: request.action, Content.review_status: event.status,
         Content.reviewer_comment: comment, Content.reviewed_at: now,
@@ -62,7 +66,7 @@ def review_content(content_id: str, request: ReviewRequest, record_id: int | Non
 def review_history(content_id: str, record_id: int | None = None, db: Session = Depends(get_db)):
     record = find_content(db, content_id, record_id)
     events = db.query(ReviewEvent).filter(ReviewEvent.content_record_id == record.id).order_by(ReviewEvent.version.desc()).limit(100).all()
-    return [{"id": e.id, "version": e.version, "actor": e.actor,
+    return [{"id": e.id, "version": e.version, "analysis_version": e.analysis_version, "actor": e.actor,
              "previous_status": e.previous_status, "previous_action": e.previous_action,
              "previous_comment": e.previous_comment, "action": e.action,
              "status": e.status, "comment": e.comment, "created_at": e.created_at} for e in events]

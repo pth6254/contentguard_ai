@@ -1,5 +1,5 @@
 """Customer-only view of their own content, jobs, and webhook outcomes."""
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ def client_dashboard(client: Client = Depends(get_current_client), db: Session =
                   .filter(ReviewEvent.client_id == client.id)
                   .group_by(WebhookDelivery.status).all())
     return {"client": {"id": client.id, "name": client.name}, "total": query.count(),
+            "re_review_required": query.filter(Content.needs_re_review == True).count(),
             "by_status": counts, "jobs": dict(jobs), "webhooks": dict(deliveries),
             "policy_version": policy.version if policy else 0}
 
@@ -37,6 +38,29 @@ def client_contents(response: Response, limit: int = Query(20, ge=1, le=100),
         query = query.filter(Content.content_id.ilike(f"%{search}%"))
     response.headers["X-Total-Count"] = str(query.count())
     return query.order_by(Content.created_at.desc(), Content.id.desc()).offset(offset).limit(limit).all()
+
+
+@router.get("/contents/{record_id}", response_model=ContentResponse)
+def client_content(record_id: int, client: Client = Depends(get_current_client), db: Session = Depends(get_db)):
+    record = db.query(Content).filter(Content.id == record_id, Content.client_id == client.id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="콘텐츠가 없습니다.")
+    return record
+
+
+@router.post("/contents/{record_id}/retry", status_code=202)
+def retry_content(record_id: int, client: Client = Depends(get_current_client), db: Session = Depends(get_db)):
+    from routers.jobs import _enqueue_record, _result
+    record = db.query(Content).filter(Content.id == record_id, Content.client_id == client.id).with_for_update().first()
+    if not record:
+        raise HTTPException(status_code=404, detail="콘텐츠가 없습니다.")
+    active = db.query(AnalysisJob).filter(AnalysisJob.content_record_id == record.id,
+                                       AnalysisJob.status.in_(["PENDING", "PROCESSING"])).first()
+    if active:
+        return _result(active)
+    if (record.explanation_json or {}).get("analysis_status") != "fallback":
+        raise HTTPException(status_code=409, detail="임시 분석 결과만 다시 분석할 수 있습니다.")
+    return _enqueue_record(db, record)
 
 
 @router.get("/webhooks")

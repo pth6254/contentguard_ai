@@ -11,7 +11,7 @@ from auth import get_current_operator
 from database import get_db
 from models import Client, ClientPolicy, Content
 from services.category_scorer import KEYWORDS
-from services.policy_service import apply_policy
+from services.policy_service import apply_policy, base_decision
 
 router = APIRouter(prefix="/api/policies", tags=["policies"], dependencies=[Depends(get_current_operator)])
 
@@ -78,15 +78,21 @@ def preview_policy(client_id: int, body: PolicyRequest, db: Session = Depends(ge
     records = (db.query(Content).filter(Content.client_id == client_id)
                .order_by(Content.id.desc()).limit(100).all())
     changes = []
+    skipped = 0
     for record in records:
-        if not record.category_scores:
+        base = base_decision(record)
+        if not record.category_scores or base is None:
+            skipped += 1
             continue
-        _, grade, action, review, _ = apply_policy(record.risk_score, record.risk_level,
+        _, grade, action, review, _ = apply_policy(base["risk_score"], base["risk_level"],
                                                    record.category_scores, policy)
-        if grade != record.risk_level or review:
+        review = review or base["review_required"]
+        if review and action in ("APPROVE", "MONITOR"):
+            action = "REVIEW"
+        if grade != record.risk_level or action != record.recommended_action or review != bool((record.explanation_json or {}).get("review_required")):
             changes.append({"record_id": record.id, "content_id": record.content_id,
                             "before": record.risk_level, "after": grade,
-                            "recommended_action": "REVIEW" if review and action in ("APPROVE", "MONITOR") else action,
+                            "recommended_action": action,
                             "review_required": review})
-    return {"sampled": len(records), "changed": len(changes), "changes": changes,
+    return {"sampled": len(records), "skipped": skipped, "changed": len(changes), "changes": changes,
             "notice": "기존 결과는 바뀌지 않습니다. 새 분석 또는 재분석에 적용됩니다."}

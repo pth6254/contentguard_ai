@@ -69,6 +69,7 @@ class Content(Base):
 
     review_status = Column(String, nullable=False, default="PENDING")
     review_version = Column(Integer, nullable=False, default=0)
+    analysis_version = Column(Integer, nullable=False, default=1)
     needs_re_review = Column(Boolean, nullable=False, default=False)
     review_action = Column(String, nullable=True)
     reviewer_comment = Column(Text, nullable=True)
@@ -117,6 +118,7 @@ class ReviewEvent(Base):
     status = Column(String, nullable=False)
     comment = Column(Text, nullable=True)
     version = Column(Integer, nullable=False)
+    analysis_version = Column(Integer, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -139,6 +141,7 @@ class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     id = Column(Integer, primary_key=True)
     content_record_id = Column(Integer, ForeignKey("contents.id"), nullable=False, index=True)
+    analysis_version = Column(Integer, nullable=False, default=0)
     source = Column(String(32), nullable=False, default="api")
     status = Column(String(16), nullable=False)
     risk_score = Column(Float, nullable=False)
@@ -182,6 +185,7 @@ class AnalysisJob(Base):
     attempts = Column(Integer, nullable=False, default=0)
     next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     cancel_requested = Column(Boolean, nullable=False, default=False)
+    lease_token = Column(String(32), nullable=True)
     last_error = Column(String(100), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
@@ -206,4 +210,32 @@ class BatchImport(Base):
     rows_total = Column(Integer, nullable=False)
     accepted = Column(Integer, nullable=False)
     skipped = Column(Integer, nullable=False)
+    errors = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    id = Column(String(32), primary_key=True)
+    kind = Column(String(16), nullable=False, index=True)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EvaluationDataset(Base):
+    __tablename__ = "evaluation_datasets"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    # Immutable label snapshots; no text or credentials are copied.
+    items = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EvaluationReport(Base):
+    __tablename__ = "evaluation_reports"
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey("evaluation_datasets.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    filters = Column(JSON, nullable=False)
+    run_ids = Column(JSON, nullable=False)
+    metrics = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

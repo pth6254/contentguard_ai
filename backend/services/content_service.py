@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 def add_analysis_run(db: Session, record: Content, analysis: dict, source: str) -> None:
     details = analysis.get("explanation_json") or {}
     metadata = details.get("analysis_metadata") or {}
+    record.analysis_version = (record.analysis_version or 0) + 1
     db.add(AnalysisRun(content_record_id=record.id, source=source,
+                       analysis_version=record.analysis_version,
                        status=details.get("analysis_status", "legacy"),
                        risk_score=analysis["final"]["risk_score"],
                        risk_level=analysis["final"]["risk_level"],
@@ -38,10 +40,12 @@ def save_analysis(
     raw_model_score: Optional[float] = None,
     calibrated_score: Optional[float] = None,
     source: str = "api",
+    commit: bool = True,
 ) -> Content:
     """예측 결과를 DB에 저장한다. 예측 실행과 LLM 호출은 호출자 책임."""
 
     record = Content(
+        analysis_version=0,
         client_id=client_id,
         content_id=content_id,
         text=text,
@@ -80,8 +84,11 @@ def save_analysis(
             }
             for pred in all_predictions
         ])
-        db.commit()
-        db.refresh(record)
+        if commit:
+            db.commit()
+            db.refresh(record)
+        else:
+            db.flush()
     except Exception:
         db.rollback()
         raise

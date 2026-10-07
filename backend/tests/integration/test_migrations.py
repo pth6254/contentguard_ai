@@ -48,6 +48,7 @@ def test_migration_preserves_existing_records_and_links(migration_url, monkeypat
     with engine.connect() as connection:
         assert connection.execute(text("SELECT text FROM contents WHERE id=1")).scalar() == "preserved"
         assert connection.execute(text("SELECT content_record_id FROM model_predictions")).scalar() == 1
+        assert connection.execute(text("SELECT analysis_version FROM contents WHERE id=1")).scalar() == 1
         assert len(connection.execute(text("SELECT webhook_secret FROM clients WHERE id=1")).scalar()) == 64
         if engine.dialect.name == "sqlite":
             assert connection.execute(text("PRAGMA foreign_key_check")).fetchall() == []

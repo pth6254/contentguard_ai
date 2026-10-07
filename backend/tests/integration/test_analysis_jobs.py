@@ -53,5 +53,5 @@ def test_reanalysis_retains_review_and_requests_new_review(client, db_session, a
     assert record.needs_re_review is True
     assert len(client.get(f"/api/contents/TEST001/analyses?record_id={record_id}").json()) == 2
     assert any(item["id"] == record_id for item in client.get("/api/contents?status=PENDING").json())
-    assert client.post(f"/api/reviews/TEST001?record_id={record_id}", json={"action": "hold", "expected_version": 1}).status_code == 200
+    assert client.post(f"/api/reviews/TEST001?record_id={record_id}", json={"action": "hold", "expected_version": 1, "expected_analysis_version": 2}).status_code == 200
     assert db_session.get(Content, record_id).needs_re_review is False

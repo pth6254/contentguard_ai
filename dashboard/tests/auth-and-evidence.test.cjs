@@ -94,3 +94,28 @@ test('bulk review reports partial failure and keeps failed item', async () => {
   assert.equal(result.conflicts, 1)
   assert.equal(result.failures[0].item.id, 2)
 })
+
+test('review submits the exact analysis version displayed to the operator', async () => {
+  let sent
+  const fetch = async (url, init) => { sent = JSON.parse(init.body); return { status: 200, ok: true, json: async () => ({}) } }
+  const { auth } = authContext(fetch)
+  const { api } = load('lib/api.ts', { fetch, URLSearchParams, require: name => name === '@/lib/auth' ? auth : require(name) })
+  await api.review({ id: 7, content_id: 'shared', review_version: 2, analysis_version: 4 }, 'approve')
+  assert.equal(sent.expected_version, 2)
+  assert.equal(sent.expected_analysis_version, 4)
+})
+
+test('jobs retain pagination totals and encode batch and customer filters', async () => {
+  let requested
+  const fetch = async url => { requested = url; return { status: 200, ok: true, headers: { get: () => '105' }, json: async () => [{ id: 'job' }] } }
+  const { auth } = authContext(fetch)
+  const { api } = load('lib/api.ts', { fetch, URLSearchParams, require: name => name === '@/lib/auth' ? auth : require(name) })
+  const result = await api.getJobs({ offset: 100, limit: 20, status: 'DEGRADED', client_id: '2', batch_id: 'batch' })
+  const params = new URL(requested, 'http://local').searchParams
+  assert.equal(params.get('offset'), '100')
+  assert.equal(params.get('client_id'), '2')
+  assert.equal(params.get('batch_id'), 'batch')
+  assert.equal(params.get('status'), 'DEGRADED')
+  assert.equal(result.total, 105)
+  assert.equal(result.items.length, 1)
+})

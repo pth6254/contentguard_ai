@@ -31,6 +31,8 @@ def analyze_text(text: str, detected_pii: list[str] | None = None, policy: dict 
     rule_data = redact([rule.to_dict() for rule in rules])
     result = redact(classify_and_explain(masked, hints, rule_data))
     score, rule_grade, action = apply_forced_escalation(result["risk_score"], rules)
+    base_decision = {"risk_score": score, "risk_level": rule_grade,
+                     "review_required": result.get("analysis_status", "completed") != "completed" or any(r.review_only for r in rules)}
     score, grade, action, policy_review, policy_note = apply_policy(score, rule_grade, result["category_scores"], policy)
     status = result.get("analysis_status", "completed")
     review_required = status != "completed" or any(r.review_only for r in rules) or policy_review
@@ -41,6 +43,7 @@ def analyze_text(text: str, detected_pii: list[str] | None = None, policy: dict 
                    for key in ("summary", "score_explanation", "main_reasons", "evidence",
                                "recommended_operator_check", "confidence_note")}
     explanation.update(analysis_status=status, review_required=review_required,
+                       base_decision=base_decision,
                        model_risk_level=result["risk_level"], final_risk_level=grade)
     explanation["analysis_metadata"] = {
         "provider": settings.LLM_PROVIDER_EXPLAIN,
@@ -48,6 +51,7 @@ def analyze_text(text: str, detected_pii: list[str] | None = None, policy: dict 
                  if settings.LLM_PROVIDER_EXPLAIN == "ollama" else settings.LLM_MODEL_EXPLAIN,
         "prompt_version": "v1",
         "policy_version": f"client-v{policy['version']}" if policy else "global-v1",
+        "customer_policy": policy,
     }
     if rule_grade != result["risk_level"]:
         reason = ", ".join(r.rule_id for r in rules if not r.review_only)
